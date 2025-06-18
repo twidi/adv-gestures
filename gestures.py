@@ -1,0 +1,1049 @@
+#!/usr/bin/env python3
+"""List all available cameras with their paths and names using linuxpy.video."""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import re
+import time
+from dataclasses import dataclass, field
+from enum import Enum, IntEnum
+from functools import cached_property
+from typing import NamedTuple, Optional, List, TypeAlias
+import numpy as np
+from mediapipe.tasks.python.components.containers import NormalizedLandmark
+
+try:
+    from linuxpy.video.device import Device, BufferType, PixelFormat
+except ImportError:
+    print("Error: linuxpy is not installed. Install it with: pip install linuxpy")
+    exit(1)
+
+try:
+    import cv2
+except ImportError:
+    print("Error: opencv-python is not installed. Install it with: pip install opencv-python")
+    exit(1)
+
+try:
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+except ImportError:
+    print("Error: mediapipe is not installed. Install it with: pip install mediapipe")
+    exit(1)
+
+
+MIRROR_OUTPUT = True
+DESIRED_SIZE = 1280  # size of the max dimension of the camera
+
+# Global variable to store the latest gesture result
+latest_gesture_result = None
+
+
+class DefaultGestures(str, Enum):
+    CLOSED_FIST = "Closed_Fist"
+    OPEN_PALM = "Open_Palm"
+    POINTING_UP = "Pointing_Up"
+    THUMB_DOWN = "Thumb_Down"
+    THUMB_UP = "Thumb_Up"
+    VICTORY = "Victory"
+    LOVE = "ILoveYou"
+
+
+class HandLandmark(IntEnum):
+    """MediaPipe hand landmark indices."""
+    WRIST = 0
+    THUMB_CMC = 1
+    THUMB_MCP = 2
+    THUMB_IP = 3
+    THUMB_TIP = 4
+    INDEX_FINGER_MCP = 5
+    INDEX_FINGER_PIP = 6
+    INDEX_FINGER_DIP = 7
+    INDEX_FINGER_TIP = 8
+    MIDDLE_FINGER_MCP = 9
+    MIDDLE_FINGER_PIP = 10
+    MIDDLE_FINGER_DIP = 11
+    MIDDLE_FINGER_TIP = 12
+    RING_FINGER_MCP = 13
+    RING_FINGER_PIP = 14
+    RING_FINGER_DIP = 15
+    RING_FINGER_TIP = 16
+    PINKY_MCP = 17
+    PINKY_PIP = 18
+    PINKY_DIP = 19
+    PINKY_TIP = 20
+
+
+
+class Handedness(str, Enum):
+    """Handedness enum for MediaPipe."""
+    LEFT = "left"
+    RIGHT = "right"
+
+    @classmethod
+    def from_data(cls, handedness_str: str) -> Handedness:
+        """Convert MediaPipe handedness string to Handedness enum."""
+        return cls(handedness_str.lower())
+
+
+
+class FingerIndex(IntEnum):
+    """Finger index constants for easier reference."""
+    THUMB = 0
+    INDEX = 1
+    MIDDLE = 2
+    RING = 3
+    PINKY = 4
+
+
+LandmarkGroup: TypeAlias = List[HandLandmark]
+
+class LandmarkGroups(LandmarkGroup, Enum):
+    PALM = [HandLandmark.WRIST, HandLandmark.THUMB_CMC, HandLandmark.INDEX_FINGER_MCP, HandLandmark.MIDDLE_FINGER_MCP, HandLandmark.RING_FINGER_MCP, HandLandmark.PINKY_MCP]
+    THUMB = [HandLandmark.THUMB_CMC, HandLandmark.THUMB_MCP, HandLandmark.THUMB_IP, HandLandmark.THUMB_TIP]
+    INDEX = [HandLandmark.INDEX_FINGER_MCP, HandLandmark.INDEX_FINGER_PIP, HandLandmark.INDEX_FINGER_DIP, HandLandmark.INDEX_FINGER_TIP]
+    MIDDLE = [HandLandmark.MIDDLE_FINGER_MCP, HandLandmark.MIDDLE_FINGER_PIP, HandLandmark.MIDDLE_FINGER_DIP, HandLandmark.MIDDLE_FINGER_TIP]
+    RING = [HandLandmark.RING_FINGER_MCP, HandLandmark.RING_FINGER_PIP, HandLandmark.RING_FINGER_DIP, HandLandmark.RING_FINGER_TIP]
+    PINKY = [HandLandmark.PINKY_MCP, HandLandmark.PINKY_PIP, HandLandmark.PINKY_DIP, HandLandmark.PINKY_TIP]
+
+
+PALM_LANDMARKS = LandmarkGroups.PALM
+FINGERS_LANDMARKS = [LandmarkGroups.THUMB, LandmarkGroups.INDEX, LandmarkGroups.MIDDLE, LandmarkGroups.RING, LandmarkGroups.PINKY]
+
+
+@dataclass
+class Hands:
+    left: Hand = None
+    right: Hand = None
+    
+    def draw(self, image: np.ndarray) -> np.ndarray:
+        """Draw both hands on the image."""
+        # Create a copy to avoid modifying the original
+        annotated_image = image.copy()
+        
+        # If no hands are detected, return original image
+        if not self.left and not self.right:
+            return annotated_image
+
+        # Draw each hand
+        if self.left:
+            annotated_image = self.left.draw(annotated_image)
+        if self.right:
+            annotated_image = self.right.draw(annotated_image)
+        
+        return annotated_image
+
+
+@dataclass
+class Hand:
+    visible: bool = False
+    handedness: Handedness | None = None  # None if not detected
+    wrist_landmark: Optional[NormalizedLandmark] = None
+    palm: Optional[Palm] = None
+    fingers: list[Finger] = field(default_factory=list)
+    gesture: Optional[DefaultGestures] = None
+    gesture_score: Optional[float] = None
+    
+    @cached_property
+    def is_facing_camera(self) -> bool:
+        """Determine if the hand is showing its palm or back to the camera using cross product method."""
+        if not self.handedness or not self.palm or len(self.palm.landmarks) < 6:
+            return False
+        
+        # Get key landmarks for cross product calculation
+        wrist = self.wrist_landmark
+        thumb_mcp = self.palm.landmarks[1]  # THUMB_CMC
+        index_mcp = self.palm.landmarks[2]  # INDEX_FINGER_MCP
+        pinky_mcp = self.palm.landmarks[5]  # PINKY_MCP
+        
+        # Create vectors from wrist to thumb MCP and wrist to pinky MCP
+        # Note: MediaPipe uses normalized coordinates where x,y are in [0,1] and z represents depth
+        vec1 = np.array([
+            thumb_mcp.x - wrist.x,
+            thumb_mcp.y - wrist.y,
+            thumb_mcp.z - wrist.z if hasattr(thumb_mcp, 'z') else 0
+        ])
+        
+        vec2 = np.array([
+            pinky_mcp.x - wrist.x,
+            pinky_mcp.y - wrist.y,
+            pinky_mcp.z - wrist.z if hasattr(pinky_mcp, 'z') else 0
+        ])
+        
+        # Calculate cross product to get normal vector
+        normal = np.cross(vec1, vec2)
+        
+        # The z-component of the normal indicates orientation
+        # For right hand: negative z = palm facing camera
+        # For left hand: positive z = palm facing camera
+        if self.handedness == Handedness.RIGHT:
+            return normal[2] < 0
+        else:  # left hand
+            return normal[2] > 0
+    
+    
+    @cached_property
+    def main_direction(self) -> Optional[tuple[float, float]]:
+        """Calculate the main direction of the hand in the x/y plane.
+        Returns a normalized vector (dx, dy) pointing from wrist to middle finger centroid.
+        Note: This returns the direction in normalized coordinate space (0-1)."""
+        if not self.wrist_landmark or not self.fingers or len(self.fingers) <= FingerIndex.MIDDLE:
+            return None
+        
+        # Get middle finger centroid position
+        # fingers list is ordered by FingerIndex, so middle finger is at index 2
+        middle_finger = self.fingers[FingerIndex.MIDDLE]
+        if not middle_finger.landmarks:
+            return None
+        
+        middle_centroid_x, middle_centroid_y = middle_finger.centroid
+        
+        # Calculate direction vector from wrist to middle finger centroid
+        dx = middle_centroid_x - self.wrist_landmark.x
+        dy = middle_centroid_y - self.wrist_landmark.y
+        
+        # Normalize the vector
+        magnitude = np.sqrt(dx**2 + dy**2)
+        if magnitude < 0.001:  # Avoid division by zero
+            return None
+        
+        return dx / magnitude, dy / magnitude
+    
+    def draw(self, image: np.ndarray) -> np.ndarray:
+        """Draw the hand on the image."""
+        if not self.visible:
+            return image
+
+        # Draw wrist landmark
+        if self.wrist_landmark:
+            height, width = image.shape[:2]
+            wrist_x = int(self.wrist_landmark.x * width)
+            wrist_y = int(self.wrist_landmark.y * height)
+            cv2.circle(image, (wrist_x, wrist_y), 5, (255, 255, 255), -1)
+        
+        # Draw palm
+        if self.palm:
+            image = self.palm.draw(image, self.is_facing_camera)
+        
+        # Draw fingers
+        for finger in self.fingers:
+            image = finger.draw(image)
+        
+        # Draw main direction arrow
+        if self.main_direction and self.wrist_landmark:
+            height, width = image.shape[:2]
+            
+            # Start point at wrist
+            start_x = int(self.wrist_landmark.x * width)
+            start_y = int(self.wrist_landmark.y * height)
+            
+            # The main_direction is in normalized space, so we need to convert it to pixel space
+            # accounting for the aspect ratio
+            dx_norm, dy_norm = self.main_direction
+            
+            # Convert normalized direction to pixel direction
+            dx_pixel = dx_norm * width
+            dy_pixel = dy_norm * height
+            
+            # Re-normalize in pixel space
+            magnitude_pixel = np.sqrt(dx_pixel**2 + dy_pixel**2)
+            if magnitude_pixel > 0:
+                dx_pixel_norm = dx_pixel / magnitude_pixel
+                dy_pixel_norm = dy_pixel / magnitude_pixel
+                
+                # Calculate end point
+                arrow_length = 70  # pixels
+                end_x = int(start_x + dx_pixel_norm * arrow_length)
+                end_y = int(start_y + dy_pixel_norm * arrow_length)
+                
+                # Draw arrow (cyan color)
+                cv2.arrowedLine(image, (start_x, start_y), (end_x, end_y), 
+                              (255, 255, 0), 3, tipLength=0.3)
+            
+        
+        return image
+
+
+@dataclass
+class Palm:
+    landmarks: list[NormalizedLandmark] = field(default_factory=list)
+    
+    @cached_property
+    def centroid(self) -> tuple[float, float]:
+        """Calculate the centroid of palm landmarks."""
+        if not self.landmarks:
+            return 0.0, 0.0
+        
+        centroid_x = sum(landmark.x for landmark in self.landmarks) / len(self.landmarks)
+        centroid_y = sum(landmark.y for landmark in self.landmarks) / len(self.landmarks)
+        
+        return centroid_x, centroid_y
+    
+    def draw(self, image: np.ndarray, is_facing_camera: bool = False) -> np.ndarray:
+        """Draw the palm center on the image."""
+        height, width = image.shape[:2]
+        
+        palm_x, palm_y = self.centroid
+        
+        # Convert to pixel coordinates
+        palm_center_x = int(palm_x * width)
+        palm_center_y = int(palm_y * height)
+        
+        # Determine palm color based on facing
+        palm_color = (0, 255, 0) if is_facing_camera else (255, 0, 0)
+        
+        # Draw palm center with color indicating facing
+        cv2.circle(image, (palm_center_x, palm_center_y), 5, palm_color, -1)
+        
+        return image
+
+
+@dataclass
+class Finger:
+    index: FingerIndex
+    hand: Hand | None = None  # Reference to the parent hand, if needed
+    is_visible: bool = False
+    landmarks: list[NormalizedLandmark] = field(default_factory=list)
+    
+    @cached_property
+    def centroid(self) -> tuple[float, float]:
+        """Calculate the centroid of all finger landmarks."""
+        if not self.landmarks:
+            return 0.0, 0.0
+        
+        centroid_x = sum(landmark.x for landmark in self.landmarks) / len(self.landmarks)
+        centroid_y = sum(landmark.y for landmark in self.landmarks) / len(self.landmarks)
+        
+        return centroid_x, centroid_y
+    
+    @cached_property
+    def is_straight(self) -> bool:
+        """Check if the finger is straight by analyzing alignment and proportional spacing of its landmarks."""
+
+        if self.hand.gesture == DefaultGestures.CLOSED_FIST:
+            return False
+        if self.hand.gesture == DefaultGestures.OPEN_PALM:
+            return True
+        if self.hand.gesture == DefaultGestures.POINTING_UP:
+            return self.index == FingerIndex.INDEX
+        if self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+            return self.index == FingerIndex.THUMB
+        if self.hand.gesture == DefaultGestures.VICTORY:
+            return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
+
+        # Configuration constants
+        alignment_threshold = 0.01           # Maximum distance from landmarks to base-tip line
+        min_finger_length = 0.05             # Minimum total finger length
+        distal_segments_max_ratio = 1.3      # Maximum ratio between distal segments (PIP-DIP and DIP-TIP)
+        distal_segments_max_ratio_back = 1.5 # For back of hand, allow more flexibility
+        max_angle_degrees = 4.5              # Minimum angle between consecutive segments (degrees)
+        min_distal_to_proximal_ratio = 0.4   # Maximum ratio of distal segment to proximal segment
+        min_distal_to_proximal_ratio_back = 0.3  # For back of hand, allow more flexibility
+
+        if not self.hand.is_facing_camera:
+            distal_segments_max_ratio = distal_segments_max_ratio_back
+            min_distal_to_proximal_ratio = min_distal_to_proximal_ratio_back
+        
+        if len(self.landmarks) < 3:  # Need at least 3 points to check alignment
+            return False
+
+        # Skip thumb - will be handled separately later
+        if self.index == FingerIndex.THUMB:
+            return self._is_straight_basic()
+        
+        # Extract x and y coordinates for all finger landmarks
+        x_coords = [landmark.x for landmark in self.landmarks]
+        y_coords = [landmark.y for landmark in self.landmarks]
+        
+        # Calculate the line from first to last point
+        x1, y1 = x_coords[0], y_coords[0]
+        x2, y2 = x_coords[-1], y_coords[-1]
+        
+        # Check total finger length
+        finger_length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        if finger_length < min_finger_length:
+            return False
+        
+        # Calculate segment lengths
+        segment_lengths = []
+        for i in range(len(self.landmarks) - 1):
+            dx = x_coords[i+1] - x_coords[i]
+            dy = y_coords[i+1] - y_coords[i]
+            segment_length = np.sqrt(dx**2 + dy**2)
+            segment_lengths.append(segment_length)
+        
+        # For fingers (not thumb), expect 3 segments: MCP-PIP, PIP-DIP, DIP-TIP
+        # The MCP-PIP segment is naturally longer, so check proportional consistency
+        if len(segment_lengths) == 3:
+            mcp_pip, pip_dip, dip_tip = segment_lengths  # proximal, middle, distal segments
+            
+            # Check if the distal segments (PIP-DIP and DIP-TIP) are reasonably similar
+            if pip_dip > 0 and dip_tip > 0:
+                ratio = max(pip_dip, dip_tip) / min(pip_dip, dip_tip)
+                if ratio > distal_segments_max_ratio:
+                    return False
+            
+            # Check ratio between distal segments and proximal segment
+            # When fingertip is bent, distal segments become much shorter relative to proximal
+            if mcp_pip > 0:
+                # Check both distal segments against the proximal segment
+                for segment_length in (pip_dip, dip_tip):
+                    if segment_length > 0 and segment_length / mcp_pip < min_distal_to_proximal_ratio:
+                        return False
+
+        # Check alignment - distance from each point to the line
+        distances = []
+        for i in range(1, len(self.landmarks) - 1):  # Skip first and last points
+            x, y = x_coords[i], y_coords[i]
+            # Distance from point to line formula
+            if x2 != x1 or y2 != y1:
+                dist = abs((y2-y1)*x - (x2-x1)*y + x2*y1 - y2*x1) / np.sqrt((y2-y1)**2 + (x2-x1)**2)
+                distances.append(dist)
+        
+        # Check if all intermediate points are close to the line
+        max_distance = max(distances) if distances else 0
+        if max_distance >= alignment_threshold:
+            return False
+        
+        # Additional check: verify segment angles are relatively straight
+        # Calculate angles between consecutive segments
+        if len(segment_lengths) >= 2:
+            for i in range(len(segment_lengths) - 1):
+                # Get vectors for consecutive segments
+                p1 = (x_coords[i], y_coords[i])
+                p2 = (x_coords[i+1], y_coords[i+1])
+                p3 = (x_coords[i+2], y_coords[i+2])
+                
+                # Vector from p1 to p2
+                v1 = (p2[0] - p1[0], p2[1] - p1[1])
+                # Vector from p2 to p3
+                v2 = (p3[0] - p2[0], p3[1] - p2[1])
+                
+                # Calculate angle between vectors using dot product
+                dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+                mag1 = np.sqrt(v1[0]**2 + v1[1]**2)
+                mag2 = np.sqrt(v2[0]**2 + v2[1]**2)
+                
+                if mag1 > 0.001 and mag2 > 0.001:  # Avoid division by zero
+                    cos_angle = dot_product / (mag1 * mag2)
+                    # Clamp to [-1, 1] to handle numerical errors
+                    cos_angle = max(-1, min(1, cos_angle))
+                    angle = np.arccos(cos_angle)
+                    
+                    # Convert to degrees for easier interpretation
+                    angle_degrees = np.degrees(angle)
+                    
+                    # If angle is too sharp (segments bend too much), finger is not straight
+                    if angle_degrees > max_angle_degrees:
+                        return False
+        
+        return True
+    
+    def _is_straight_basic(self) -> bool:
+        """Basic straightness check for thumb or fallback."""
+        alignment_threshold = 0.01
+        
+        if len(self.landmarks) < 3:
+            return False
+        
+        x_coords = [landmark.x for landmark in self.landmarks]
+        y_coords = [landmark.y for landmark in self.landmarks]
+        
+        x1, y1 = x_coords[0], y_coords[0]
+        x2, y2 = x_coords[-1], y_coords[-1]
+        
+        finger_length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        if finger_length < 0.05:
+            return False
+        
+        # Check alignment only
+        distances = []
+        for i in range(1, len(self.landmarks) - 1):
+            x, y = x_coords[i], y_coords[i]
+            if x2 != x1 or y2 != y1:
+                dist = abs((y2-y1)*x - (x2-x1)*y + x2*y1 - y2*x1) / np.sqrt((y2-y1)**2 + (x2-x1)**2)
+                distances.append(dist)
+        
+        max_distance = max(distances) if distances else 0
+        return max_distance < alignment_threshold
+    
+    @cached_property
+    def start_point(self) -> Optional[tuple[float, float]]:
+        """Get the start point of the finger (base)."""
+        if not self.landmarks:
+            return None
+        return self.landmarks[0].x, self.landmarks[0].y
+    
+    @cached_property
+    def end_point(self) -> Optional[tuple[float, float]]:
+        """Get the end point of the finger (tip)."""
+        if not self.landmarks:
+            return None
+        return self.landmarks[-1].x, self.landmarks[-1].y
+    
+    @cached_property
+    def fold_angle(self) -> Optional[float]:
+        """Calculate the fold angle at the PIP joint (angle between MCP->PIP and PIP->TIP vectors).
+        Returns angle in degrees. 180 = straight, lower angles = more bent."""
+        if len(self.landmarks) < 3:
+            return None
+        
+        # For thumb, use CMC->IP->TIP instead of MCP->PIP->TIP
+        if self.index == FingerIndex.THUMB:
+            if len(self.landmarks) <= 3:
+                return None
+            mcp, pip, tip = self.landmarks[0], self.landmarks[1], self.landmarks[3]
+        else:
+            # For other fingers: MCP->PIP->TIP
+            mcp, pip, tip = self.landmarks[0], self.landmarks[1], self.landmarks[3]
+        
+        # Vector PIP->MCP
+        v1 = np.array([mcp.x - pip.x, mcp.y - pip.y])
+        # Vector PIP->DIP
+        v2 = np.array([tip.x - pip.x, tip.y - pip.y])
+        
+        # Calculate magnitudes
+        mag1 = np.linalg.norm(v1)
+        mag2 = np.linalg.norm(v2)
+        
+        if mag1 < 0.001 or mag2 < 0.001:
+            return None
+        
+        # Calculate angle using dot product
+        dot_product = np.dot(v1, v2)
+        cos_angle = dot_product / (mag1 * mag2)
+        
+        # Clamp to avoid numerical errors
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        
+        # Convert to degrees
+        angle_rad = np.arccos(cos_angle)
+        angle_deg = np.degrees(angle_rad)
+
+        return angle_deg
+    
+    @cached_property
+    def direction(self) -> Optional[tuple[float, float]]:
+        """Calculate the direction of the finger using the last two points.
+        Returns a normalized vector (dx, dy) pointing from second-to-last to last point.
+        Returns None if finger is fully bent."""
+        if len(self.landmarks) < 2:
+            return None
+        
+        # Don't calculate direction if finger is fully bent
+        if self.is_fully_bent:
+            return None
+        
+        # Get the last two points
+        second_last = self.landmarks[-2]
+        last = self.landmarks[-1]
+        
+        # Calculate direction vector
+        dx = last.x - second_last.x
+        dy = last.y - second_last.y
+        
+        # Normalize the vector
+        magnitude = np.sqrt(dx**2 + dy**2)
+        if magnitude < 0.001:  # Avoid division by zero
+            return None
+        
+        return dx / magnitude, dy / magnitude
+    
+    @cached_property
+    def is_fully_bent(self) -> bool:
+        """Check if the finger is fully bent based on fold angle threshold."""
+        if self.hand.gesture == DefaultGestures.CLOSED_FIST:
+            return True
+        if self.hand.gesture == DefaultGestures.OPEN_PALM:
+            return False
+        if self.hand.gesture == DefaultGestures.POINTING_UP:
+            return self.index != FingerIndex.INDEX
+        if self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+            return self.index != FingerIndex.THUMB
+        if self.hand.gesture == DefaultGestures.VICTORY:
+            return self.index not in (FingerIndex.INDEX, FingerIndex.MIDDLE)
+
+        if self.fold_angle is None:
+            return True
+        
+        return self.fold_angle < (150 if self.index == FingerIndex.THUMB else 60.0)
+    
+    @cached_property
+    def touches_thumb(self) -> bool:
+        """Check if this finger tip touches the thumb tip of the same hand."""
+        # Skip if this finger is the thumb itself
+        if self.index == FingerIndex.THUMB:
+            return False
+
+        if self.hand.gesture is not None:
+            return False
+
+        if self.is_fully_bent:
+            return False
+        
+        # Need a reference to the hand to access the thumb
+        if not self.hand or not self.hand.fingers:
+            return False
+        
+        # Get the thumb finger
+        thumb = None
+        for finger in self.hand.fingers:
+            if finger.index == FingerIndex.THUMB:
+                thumb = finger
+                break
+        
+        if not thumb or not thumb.landmarks or not self.landmarks:
+            return False
+        
+        # Get the tip landmarks (last landmark of each finger)
+        thumb_tip = thumb.landmarks[-1]
+        finger_tip = self.landmarks[-1]
+        
+        # Calculate 3D spatial distance between tips
+        dx = finger_tip.x - thumb_tip.x
+        dy = finger_tip.y - thumb_tip.y
+        dz = (finger_tip.z - thumb_tip.z) if hasattr(finger_tip, 'z') and hasattr(thumb_tip, 'z') else 0
+        
+        distance = np.sqrt(dx**2 + dy**2 + dz**2)
+        
+        # Touch threshold (in normalized coordinates)
+        touch_threshold = 0.05  # Adjust based on testing
+
+        return distance < touch_threshold
+    
+    def draw(self, image: np.ndarray) -> np.ndarray:
+        """Draw the finger on the image."""
+        if not self.is_visible:
+            return image
+        
+        height, width = image.shape[:2]
+        
+        # Draw all landmarks
+        for landmark in self.landmarks:
+            x = int(landmark.x * width)
+            y = int(landmark.y * height)
+            cv2.circle(image, (x, y), 3, (255, 255, 255), -1)
+        
+        # Draw colored line for straight finger
+        if self.is_straight and self.start_point and self.end_point:
+            finger_colors = [
+                (255, 0, 0),      # Blue - THUMB
+                (0, 255, 0),      # Green - INDEX
+                (0, 255, 255),    # Yellow - MIDDLE
+                (255, 0, 255),    # Magenta - RING
+                (255, 255, 0)     # Cyan - PINKY
+            ]
+            
+            start_x = int(self.start_point[0] * width)
+            start_y = int(self.start_point[1] * height)
+            end_x = int(self.end_point[0] * width)
+            end_y = int(self.end_point[1] * height)
+            
+            color = finger_colors[self.index]
+            cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
+        
+        # Draw finger direction arrow
+        if self.direction and self.end_point:
+            # Get fingertip position
+            tip_x = int(self.end_point[0] * width)
+            tip_y = int(self.end_point[1] * height)
+            
+            # Convert normalized direction to pixel space
+            dx_norm, dy_norm = self.direction
+            dx_pixel = dx_norm * width
+            dy_pixel = dy_norm * height
+            
+            # Re-normalize in pixel space
+            magnitude_pixel = np.sqrt(dx_pixel**2 + dy_pixel**2)
+            if magnitude_pixel > 0:
+                dx_pixel_norm = dx_pixel / magnitude_pixel
+                dy_pixel_norm = dy_pixel / magnitude_pixel
+                
+                # Calculate arrow end point
+                arrow_length = 30  # Small arrow
+                arrow_end_x = int(tip_x + dx_pixel_norm * arrow_length)
+                arrow_end_y = int(tip_y + dy_pixel_norm * arrow_length)
+                
+                # Draw small arrow in white
+                cv2.arrowedLine(image, (tip_x, tip_y), (arrow_end_x, arrow_end_y), 
+                              (255, 255, 255), 2, tipLength=0.4)
+        
+        # Draw red circle if this finger touches the thumb
+        if self.touches_thumb and self.end_point and self.hand:
+            # Get thumb finger
+            thumb = None
+            for finger in self.hand.fingers:
+                if finger.index == FingerIndex.THUMB:
+                    thumb = finger
+                    break
+            
+            if thumb and thumb.end_point:
+                # Calculate middle point between both tips
+                finger_tip_x = self.end_point[0]
+                finger_tip_y = self.end_point[1]
+                thumb_tip_x = thumb.end_point[0]
+                thumb_tip_y = thumb.end_point[1]
+                
+                middle_x = (finger_tip_x + thumb_tip_x) / 2
+                middle_y = (finger_tip_y + thumb_tip_y) / 2
+                
+                # Convert to pixel coordinates
+                pixel_x = int(middle_x * width)
+                pixel_y = int(middle_y * height)
+                
+                # Draw small red filled circle
+                cv2.circle(image, (pixel_x, pixel_y), 8, (0, 0, 255), -1)
+        
+        return image
+
+
+
+def create_gesture_recognizer(callback_function):
+    """Create and return a MediaPipe gesture recognizer configured for live stream mode."""
+    import os
+    import urllib.request
+    
+    model_path = 'gesture_recognizer.task'
+    model_url = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
+    
+    # Check if model file exists
+    if not os.path.exists(model_path):
+        print(f"Model file '{model_path}' not found. Downloading...")
+        try:
+            urllib.request.urlretrieve(model_url, model_path)
+            print(f"Successfully downloaded model to '{model_path}'")
+        except Exception as download_error:
+            print(f"Failed to download model: {download_error}")
+            raise RuntimeError(f"Could not download model from {model_url}: {download_error}")
+    
+    base_options = python.BaseOptions(model_asset_path=model_path, delegate=python.BaseOptions.Delegate.GPU)
+    options = vision.GestureRecognizerOptions(
+        base_options=base_options,
+        running_mode=vision.RunningMode.LIVE_STREAM,
+        num_hands=2,
+        min_hand_detection_confidence=0.5,
+        min_hand_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        result_callback=callback_function)
+    return vision.GestureRecognizer.create_from_options(options)
+
+
+def on_gesture_result(result: vision.GestureRecognizerResult, 
+                     output_image: mp.Image, 
+                     timestamp_ms: int):
+    """Callback function for gesture recognition results."""
+    global latest_gesture_result
+    latest_gesture_result = result
+
+
+def create_hands_from_results(result: Optional[vision.GestureRecognizerResult]) -> Hands:
+    """Create and return a Hands object from gesture recognition results."""
+    hands = Hands()
+    
+    if not result or not result.hand_landmarks:
+        return hands
+    
+    for i, hand_landmarks in enumerate(result.hand_landmarks):
+        # Get handedness
+        handedness = None
+        if result.handedness and i < len(result.handedness) and result.handedness[i]:
+            handedness = Handedness.from_data(result.handedness[i][0].category_name)
+        
+        # Get gesture information
+        gesture_type = None
+        gesture_score = None
+        if result.gestures and i < len(result.gestures) and result.gestures[i]:
+            gesture = result.gestures[i][0]  # Get the top gesture
+            gesture_type = None if gesture.category_name in (None, "None", "Unknown") else DefaultGestures(gesture.category_name)
+            gesture_score = gesture.score
+        
+        # Create palm object
+        palm_landmarks = [hand_landmarks[idx] for idx in PALM_LANDMARKS]
+        palm = Palm(landmarks=palm_landmarks)
+
+        # Create hand object
+        hand = Hand(
+            visible=True,
+            handedness=handedness,
+            wrist_landmark=hand_landmarks[HandLandmark.WRIST],
+            palm=palm,
+            gesture=gesture_type,
+            gesture_score=gesture_score
+        )
+
+        # Create finger objects
+        fingers = []
+        for finger_idx in FingerIndex:
+            finger_landmarks = FINGERS_LANDMARKS[finger_idx]
+            finger = Finger(
+                index=FingerIndex(finger_idx),
+                hand=hand,
+                is_visible=True,
+                landmarks=[hand_landmarks[idx] for idx in finger_landmarks]
+            )
+            fingers.append(finger)
+
+        hand.fingers = fingers
+
+        # Assign to correct hand based on handedness
+        if handedness == Handedness.LEFT:
+            hands.left = hand
+        elif handedness == Handedness.RIGHT:
+            hands.right = hand
+    
+    return hands
+
+
+class CameraInfo(NamedTuple):
+    device_index: int
+    name: str
+    height: int
+    width: int
+    format: PixelFormat
+    
+    def __str__(self):
+        return f"[{self.device_index}] {self.name} - {self.width}x{self.height} @ {self.format.name}"
+
+
+def list_cameras():
+    """List all available cameras and return a list of CameraInfo objects."""
+    cameras = []
+    video_devices = sorted(glob.glob('/dev/video*'))
+    
+    for device_path in video_devices:
+        try:
+            device_index = int(re.search(r'/dev/video(\d+)', device_path).group(1))
+            device = Device(device_path)
+            device.open()
+            
+            # Only list devices that support video capture
+            formats = [f for f in device.info.formats if f.type == BufferType.VIDEO_CAPTURE]
+            if not formats:
+                device.close()
+                continue
+            
+            # Get current format
+            current_format = device.get_format(BufferType.VIDEO_CAPTURE)
+            
+            # Skip GREY cameras
+            if current_format.pixel_format == PixelFormat.GREY:
+                device.close()
+                continue
+            
+            camera_info = CameraInfo(
+                device_index=device_index,
+                name=device.info.card,
+                height=current_format.height,
+                width=current_format.width,
+                format=current_format.pixel_format
+            )
+            cameras.append(camera_info)
+            device.close()
+            
+        except Exception:
+            # Skip devices that can't be accessed
+            continue
+    
+    return cameras
+
+
+def pick_camera(filter_name=None):
+    """List cameras and let user pick one. Returns selected CameraInfo or None.
+    
+    Args:
+        filter_name: Optional string to filter cameras by name (case insensitive)
+    """
+    cameras = list_cameras()
+    
+    if not cameras:
+        print("No cameras found!")
+        return None
+    
+    # Filter cameras if a filter name is provided
+    if filter_name:
+        filter_lower = filter_name.lower()
+        filtered_cameras = [cam for cam in cameras if filter_lower in cam.name.lower()]
+        
+        if not filtered_cameras:
+            print(f"No cameras found matching '{filter_name}'")
+            return None
+        
+        if len(filtered_cameras) == 1:
+            # Auto-select if only one match
+            selected = filtered_cameras[0]
+            print(f"Auto-selected camera: {selected}")
+            return selected
+        
+        # Multiple matches, show filtered list
+        cameras = filtered_cameras
+        print(f"Cameras matching '{filter_name}':")
+    else:
+        print("Available cameras:")
+    
+    cam_dict = {}
+    for cam in cameras:
+        print(f"  {cam}")
+        cam_dict[cam.device_index] = cam
+    
+    valid_indices = sorted(cam_dict.keys())
+    
+    while True:
+        try:
+            choice = input(f"\nSelect camera ({', '.join(map(str, valid_indices))} or q to quit): ")
+            if choice.lower() == 'q':
+                return None
+            idx = int(choice)
+            if idx in cam_dict:
+                return cam_dict[idx]
+            else:
+                print(f"Invalid choice. Please enter one of: {', '.join(map(str, valid_indices))}")
+        except ValueError:
+            print("Invalid input. Please enter a number or 'q'")
+
+
+def run(camera_info: CameraInfo):
+    """Show a live preview of the selected camera with gesture recognition."""
+    global latest_gesture_result
+    
+    cap = cv2.VideoCapture(camera_info.device_index)
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open camera {camera_info.device_index}")
+        return
+    
+    # Calculate dimensions based on DESIRED_SIZE while maintaining aspect ratio
+    aspect_ratio = camera_info.width / camera_info.height
+    if camera_info.width > camera_info.height:
+        new_width = DESIRED_SIZE
+        new_height = int(DESIRED_SIZE / aspect_ratio)
+    else:
+        new_height = DESIRED_SIZE
+        new_width = int(DESIRED_SIZE * aspect_ratio)
+    
+    # Set resolution based on calculated dimensions
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, new_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, new_height)
+    
+    window_name = f"Camera Preview - {camera_info.name}"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    
+    print(f"Showing preview for {camera_info.name}")
+    print("Loading gesture recognizer model...")
+    
+    try:
+        # Create gesture recognizer
+        recognizer = create_gesture_recognizer(on_gesture_result)
+        print("Gesture recognizer loaded successfully")
+        print("Press 'q' or ESC to quit")
+    except Exception as e:
+        print(f"\nError loading gesture recognizer: {e}")
+        print("\nAborting - gesture recognition is required for this application.")
+        cap.release()
+        cv2.destroyAllWindows()
+        return
+    
+    # Initialize timestamp
+    start_time = time.time()
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Failed to capture frame")
+            break
+
+        # Process frame with gesture recognizer if available
+        if recognizer:
+            # Convert frame to RGB (MediaPipe expects RGB)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Create MediaPipe Image
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            
+            # Calculate timestamp in milliseconds
+            timestamp_ms = int((time.time() - start_time) * 1000)
+            
+            # Perform gesture recognition
+            recognizer.recognize_async(mp_image, timestamp_ms)
+            
+            # Create hands object and draw results on frame
+            hands = create_hands_from_results(latest_gesture_result)
+            frame = hands.draw(frame)
+
+            if MIRROR_OUTPUT:
+                frame = cv2.flip(frame, 1)
+
+            # First, prepare all text to determine footer height
+            texts = []
+            line_height = 40
+            padding = 15
+            
+            # Count visible hands to calculate positions from bottom
+            visible_hands = []
+            for hand in [hands.left, hands.right]:
+                if hand and hand.visible:
+                    visible_hands.append(hand)
+            
+            # Calculate text positions from bottom up
+            frame_height = frame.shape[0]
+            for i, hand in enumerate(visible_hands):
+                handedness_str = hand.handedness.name if hand.handedness else "Unknown"
+                facing_str = 'PALM' if hand.is_facing_camera else 'BACK'
+                
+                text = f"{handedness_str} hand showing {facing_str}"
+
+                # Add gesture information if available
+                if hand.gesture and hand.gesture_score:
+                    text += f" - Gesture: {hand.gesture} ({hand.gesture_score:.2f})"
+                
+                # Position from bottom: padding + line_height * (total_hands - current_index)
+                y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
+                texts.append((text, y_pos))
+
+            # Add semi-transparent black footer based on actual text height
+            if texts:
+                footer_height = line_height * len(visible_hands) + padding
+                footer_y_start = frame_height - footer_height
+                overlay = frame.copy()
+                cv2.rectangle(overlay, (0, footer_y_start), (frame.shape[1], frame_height), (0, 0, 0), -1)
+                frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
+
+                # Draw text with anti-aliasing
+                for text, y_pos in texts:
+                    position = (10, y_pos)
+                    # Draw with LINE_AA for anti-aliasing
+                    cv2.putText(frame, text, position,
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+
+        cv2.imshow(window_name, frame)
+        
+        # Check for key press
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q') or key == 27:  # 'q' or ESC
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    if recognizer:
+        recognizer.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="List and preview cameras")
+    parser.add_argument("filter", nargs="?", help="Optional camera name filter (case insensitive)")
+    args = parser.parse_args()
+    
+    selected = pick_camera(args.filter)
+    
+    if selected:
+        print(f"\nSelected: {selected}")
+        run(selected)
+    else:
+        print("\nNo camera selected.")
+
+
+if __name__ == "__main__":
+    main()
