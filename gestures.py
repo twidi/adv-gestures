@@ -120,6 +120,15 @@ ADJACENT_FINGER_PAIRS = [
     (FingerIndex.RING, FingerIndex.PINKY)
 ]
 
+# Colors for drawing fingers (BGR format for OpenCV)
+FINGER_COLORS = [
+    (255, 0, 0),      # Blue - THUMB
+    (0, 255, 0),      # Green - INDEX
+    (0, 255, 255),    # Yellow - MIDDLE
+    (255, 0, 255),    # Magenta - RING
+    (255, 255, 0)     # Cyan - PINKY
+]
+
 
 @dataclass
 class Hands:
@@ -393,28 +402,24 @@ class Finger:
 
         if self.hand.gesture == DefaultGestures.CLOSED_FIST:
             return False
-        if self.hand.gesture == DefaultGestures.OPEN_PALM:
-            return True
-        if self.hand.gesture == DefaultGestures.POINTING_UP:
+        elif self.hand.gesture == DefaultGestures.OPEN_PALM:
+            if self.index != FingerIndex.THUMB:
+                return True
+        elif self.hand.gesture == DefaultGestures.POINTING_UP:
             return self.index == FingerIndex.INDEX
-        if self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+        elif self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
             return self.index == FingerIndex.THUMB
-        if self.hand.gesture == DefaultGestures.VICTORY:
+        elif self.hand.gesture == DefaultGestures.VICTORY:
             return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         # Configuration constants
-        alignment_threshold = 0.01           # Maximum distance from landmarks to base-tip line
-        min_finger_length = 0.05             # Minimum total finger length
-        distal_segments_max_ratio = 1.3      # Maximum ratio between distal segments (PIP-DIP and DIP-TIP)
+        distal_segments_max_ratio = 1.5      # Maximum ratio between distal segments (PIP-DIP and DIP-TIP)
         distal_segments_max_ratio_back = 1.5 # For back of hand, allow more flexibility
-        max_angle_degrees = 4.5              # Minimum angle between consecutive segments (degrees)
-        min_distal_to_proximal_ratio = 0.4   # Maximum ratio of distal segment to proximal segment
-        min_distal_to_proximal_ratio_back = 0.3  # For back of hand, allow more flexibility
+        max_angle_degrees = 15               # Minimum angle between consecutive segments (degrees)
 
         if not self.hand.is_facing_camera:
             distal_segments_max_ratio = distal_segments_max_ratio_back
-            min_distal_to_proximal_ratio = min_distal_to_proximal_ratio_back
-        
+
         if len(self.landmarks) < 3:  # Need at least 3 points to check alignment
             return False
 
@@ -425,15 +430,6 @@ class Finger:
         # Extract x and y coordinates for all finger landmarks
         x_coords = [landmark.x for landmark in self.landmarks]
         y_coords = [landmark.y for landmark in self.landmarks]
-        
-        # Calculate the line from first to last point
-        x1, y1 = x_coords[0], y_coords[0]
-        x2, y2 = x_coords[-1], y_coords[-1]
-        
-        # Check total finger length
-        finger_length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        if finger_length < min_finger_length:
-            return False
         
         # Calculate segment lengths
         segment_lengths = []
@@ -447,36 +443,14 @@ class Finger:
         # The MCP-PIP segment is naturally longer, so check proportional consistency
         if len(segment_lengths) == 3:
             mcp_pip, pip_dip, dip_tip = segment_lengths  # proximal, middle, distal segments
-            
+
             # Check if the distal segments (PIP-DIP and DIP-TIP) are reasonably similar
             if pip_dip > 0 and dip_tip > 0:
                 ratio = max(pip_dip, dip_tip) / min(pip_dip, dip_tip)
                 if ratio > distal_segments_max_ratio:
                     return False
-            
-            # Check ratio between distal segments and proximal segment
-            # When fingertip is bent, distal segments become much shorter relative to proximal
-            if mcp_pip > 0:
-                # Check both distal segments against the proximal segment
-                for segment_length in (pip_dip, dip_tip):
-                    if segment_length > 0 and segment_length / mcp_pip < min_distal_to_proximal_ratio:
-                        return False
 
-        # Check alignment - distance from each point to the line
-        distances = []
-        for i in range(1, len(self.landmarks) - 1):  # Skip first and last points
-            x, y = x_coords[i], y_coords[i]
-            # Distance from point to line formula
-            if x2 != x1 or y2 != y1:
-                dist = abs((y2-y1)*x - (x2-x1)*y + x2*y1 - y2*x1) / np.sqrt((y2-y1)**2 + (x2-x1)**2)
-                distances.append(dist)
-        
-        # Check if all intermediate points are close to the line
-        max_distance = max(distances) if distances else 0
-        if max_distance >= alignment_threshold:
-            return False
-        
-        # Additional check: verify segment angles are relatively straight
+        # Verify segment angles are relatively straight
         # Calculate angles between consecutive segments
         if len(segment_lengths) >= 2:
             for i in range(len(segment_lengths) - 1):
@@ -651,13 +625,13 @@ class Finger:
         """Check if the finger is fully bent based on fold angle threshold."""
         if self.hand.gesture == DefaultGestures.CLOSED_FIST:
             return True
-        if self.hand.gesture == DefaultGestures.OPEN_PALM:
+        elif self.hand.gesture == DefaultGestures.OPEN_PALM:
             return False
-        if self.hand.gesture == DefaultGestures.POINTING_UP:
+        elif self.hand.gesture == DefaultGestures.POINTING_UP:
             return self.index != FingerIndex.INDEX
-        if self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+        elif self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
             return self.index != FingerIndex.THUMB
-        if self.hand.gesture == DefaultGestures.VICTORY:
+        elif self.hand.gesture == DefaultGestures.VICTORY:
             return self.index not in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         if self.fold_angle is None:
@@ -760,24 +734,16 @@ class Finger:
         for landmark in self.landmarks:
             x = int(landmark.x * width)
             y = int(landmark.y * height)
-            cv2.circle(image, (x, y), 3, (255, 255, 255), -1)
+            cv2.circle(image, (x, y), 3, FINGER_COLORS[self.index], -1)
         
         # Draw colored line for straight finger
         if self.is_straight and self.start_point and self.end_point:
-            finger_colors = [
-                (255, 0, 0),      # Blue - THUMB
-                (0, 255, 0),      # Green - INDEX
-                (0, 255, 255),    # Yellow - MIDDLE
-                (255, 0, 255),    # Magenta - RING
-                (255, 255, 0)     # Cyan - PINKY
-            ]
-            
             start_x = int(self.start_point[0] * width)
             start_y = int(self.start_point[1] * height)
             end_x = int(self.end_point[0] * width)
             end_y = int(self.end_point[1] * height)
             
-            color = finger_colors[self.index]
+            color = FINGER_COLORS[self.index]
             cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
         
         # Draw finger direction arrow
