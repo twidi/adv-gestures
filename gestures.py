@@ -117,12 +117,13 @@ class LandmarkGroups(LandmarkGroup, Enum):
 PALM_LANDMARKS = LandmarkGroups.PALM
 FINGERS_LANDMARKS = [LandmarkGroups.THUMB, LandmarkGroups.INDEX, LandmarkGroups.MIDDLE, LandmarkGroups.RING, LandmarkGroups.PINKY]
 
-# Adjacent finger pairs for touching detection
-ADJACENT_FINGER_PAIRS = [
-    (FingerIndex.INDEX, FingerIndex.MIDDLE),
-    (FingerIndex.MIDDLE, FingerIndex.RING),
-    (FingerIndex.RING, FingerIndex.PINKY)
-]
+# Adjacent finger pairs with their maximum angle thresholds for touching detection
+# Each pair maps to a maximum angle in degrees
+ADJACENT_FINGER_MAX_ANGLES = {
+    (FingerIndex.INDEX, FingerIndex.MIDDLE): 2.5,
+    (FingerIndex.MIDDLE, FingerIndex.RING): 1.5,
+    (FingerIndex.RING, FingerIndex.PINKY): 2.0,
+}
 
 # Colors for drawing fingers (BGR format for OpenCV)
 FINGER_COLORS = [
@@ -272,17 +273,19 @@ class Hand:
     
     def are_fingers_touching(self, finger1: FingerIndex, finger2: FingerIndex) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
-        # Threshold for considering directions as "nearly the same"
-        angle_threshold = 2.0  # degrees
-        
         # Check if already computed
         key = (finger1, finger2)
         if key in self._finger_touch_cache:
             return self._finger_touch_cache[key]
         
-        # Check if fingers are adjacent
-        is_adjacent = (finger1, finger2) in ADJACENT_FINGER_PAIRS or (finger2, finger1) in ADJACENT_FINGER_PAIRS
-        if not is_adjacent:
+        # Check if fingers are adjacent and get their max angle threshold
+        max_angle = None
+        if (finger1, finger2) in ADJACENT_FINGER_MAX_ANGLES:
+            max_angle = ADJACENT_FINGER_MAX_ANGLES[(finger1, finger2)]
+        elif (finger2, finger1) in ADJACENT_FINGER_MAX_ANGLES:
+            max_angle = ADJACENT_FINGER_MAX_ANGLES[(finger2, finger1)]
+        
+        if max_angle is None:
             self._finger_touch_cache[key] = False
             self._finger_touch_cache[(finger2, finger1)] = False
             return False
@@ -315,8 +318,51 @@ class Hand:
         angle_rad = np.arccos(dot_product)
         angle_deg = np.degrees(angle_rad)
         
+        # Check if angle is within the threshold
+        result = angle_deg <= max_angle
+        
+        # If not parallel enough, check if fingers are converging
+        if not result:
+            # Get finger start and end points
+            start1 = finger1_obj.start_point
+            end1 = finger1_obj.end_point
+            start2 = finger2_obj.start_point
+            end2 = finger2_obj.end_point
+            
+            if start1 and end1 and start2 and end2:
+                # Check if the lines are converging (intersecting ahead of the fingertips)
+                # Using parametric line equations: P = P0 + t * d
+                # Line 1: P1 = start1 + t1 * dir1
+                # Line 2: P2 = start2 + t2 * dir2
+                
+                # Calculate the intersection point parameter t
+                # We need to solve: start1 + t1 * dir1 = start2 + t2 * dir2
+                dx1, dy1 = dir1
+                dx2, dy2 = dir2
+                x1, y1 = start1
+                x2, y2 = start2
+                
+                # Determinant of the direction matrix
+                det = dx1 * dy2 - dy1 * dx2
+                
+                if abs(det) > 0.001:  # Lines are not parallel
+                    # Solve for t1 and t2 (in normalized direction units)
+                    t1 = ((x2 - x1) * dy2 - (y2 - y1) * dx2) / det
+                    t2 = ((x2 - x1) * dy1 - (y2 - y1) * dx1) / det
+                    
+                    # Calculate actual finger lengths
+                    finger1_length = np.sqrt((end1[0] - start1[0])**2 + (end1[1] - start1[1])**2)
+                    finger2_length = np.sqrt((end2[0] - start2[0])**2 + (end2[1] - start2[1])**2)
+                    
+                    # Normalize t values by finger lengths to get position along finger
+                    # t_normalized = 0 at base, = 1 at tip, > 1 beyond tip
+                    t1_normalized = t1 / finger1_length if finger1_length > 0 else 0
+                    t2_normalized = t2 / finger2_length if finger2_length > 0 else 0
+
+                    # Check if intersection is ahead of both fingertips
+                    result = t1_normalized > 1.0 and t2_normalized > 1.0
+
         # Cache and return result
-        result = angle_deg <= angle_threshold
         self._finger_touch_cache[key] = result
         self._finger_touch_cache[(finger2, finger1)] = result
 
@@ -325,7 +371,8 @@ class Hand:
     @cached_property
     def all_fingers_touching(self) -> bool:
         """Check if all adjacent fingers are touching each other."""
-        for finger1, finger2 in ADJACENT_FINGER_PAIRS:
+        for finger_pair in ADJACENT_FINGER_MAX_ANGLES:
+            finger1, finger2 = finger_pair
             if not self.are_fingers_touching(finger1, finger2):
                 return False
         return True
