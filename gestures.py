@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import argparse
+import typer
 import glob
 import re
 import time
@@ -42,7 +42,8 @@ DESIRED_SIZE = 1280  # size of the max dimension of the camera
 latest_gesture_result = None
 
 
-class DefaultGestures(str, Enum):
+class Gestures(str, Enum):
+    # Those ones are created by MediaPipe
     CLOSED_FIST = "Closed_Fist"
     OPEN_PALM = "Open_Palm"
     POINTING_UP = "Pointing_Up"
@@ -50,6 +51,10 @@ class DefaultGestures(str, Enum):
     THUMB_UP = "Thumb_Up"
     VICTORY = "Victory"
     LOVE = "ILoveYou"
+    # Those ones are the ones we detect
+
+
+DEFAULT_GESTURES = {Gestures.CLOSED_FIST, Gestures.OPEN_PALM, Gestures.POINTING_UP, Gestures.THUMB_DOWN, Gestures.THUMB_UP, Gestures.VICTORY, Gestures.LOVE}
 
 
 class HandLandmark(IntEnum):
@@ -135,7 +140,7 @@ class Hands:
     left: Hand = None
     right: Hand = None
     
-    def draw(self, image: np.ndarray) -> np.ndarray:
+    def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw both hands on the image."""
         # Create a copy to avoid modifying the original
         annotated_image = image.copy()
@@ -146,9 +151,9 @@ class Hands:
 
         # Draw each hand
         if self.left:
-            annotated_image = self.left.draw(annotated_image)
+            annotated_image = self.left.preview_on_image(annotated_image)
         if self.right:
-            annotated_image = self.right.draw(annotated_image)
+            annotated_image = self.right.preview_on_image(annotated_image)
         
         return annotated_image
 
@@ -160,8 +165,8 @@ class Hand:
     wrist_landmark: Optional[NormalizedLandmark] = None
     palm: Optional[Palm] = None
     fingers: list[Finger] = field(default_factory=list)
-    gesture: Optional[DefaultGestures] = None
-    gesture_score: Optional[float] = None
+    gesture: Optional[Gestures] = None
+    is_default_gesture: bool = False
     _finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = field(default_factory=dict)
     
     @cached_property
@@ -289,7 +294,7 @@ class Hand:
                 return False
         return True
     
-    def draw(self, image: np.ndarray) -> np.ndarray:
+    def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw the hand on the image."""
         if not self.visible:
             return image
@@ -303,11 +308,11 @@ class Hand:
         
         # Draw palm
         if self.palm:
-            image = self.palm.draw(image, self.is_facing_camera)
+            image = self.palm.preview_on_image(image, self.is_facing_camera)
         
         # Draw fingers
         for finger in self.fingers:
-            image = finger.draw(image)
+            image = finger.preview_on_image(image)
         
         # Draw main direction arrow
         if self.main_direction and self.wrist_landmark:
@@ -359,7 +364,7 @@ class Palm:
         
         return centroid_x, centroid_y
     
-    def draw(self, image: np.ndarray, is_facing_camera: bool = False) -> np.ndarray:
+    def preview_on_image(self, image: np.ndarray, is_facing_camera: bool = False) -> np.ndarray:
         """Draw the palm center on the image."""
         height, width = image.shape[:2]
         
@@ -400,16 +405,16 @@ class Finger:
     def is_straight(self) -> bool:
         """Check if the finger is straight by analyzing alignment and proportional spacing of its landmarks."""
 
-        if self.hand.gesture == DefaultGestures.CLOSED_FIST:
+        if self.hand.gesture == Gestures.CLOSED_FIST:
             return False
-        elif self.hand.gesture == DefaultGestures.OPEN_PALM:
+        elif self.hand.gesture == Gestures.OPEN_PALM:
             if self.index != FingerIndex.THUMB:
                 return True
-        elif self.hand.gesture == DefaultGestures.POINTING_UP:
+        elif self.hand.gesture == Gestures.POINTING_UP:
             return self.index == FingerIndex.INDEX
-        elif self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
             return self.index == FingerIndex.THUMB
-        elif self.hand.gesture == DefaultGestures.VICTORY:
+        elif self.hand.gesture == Gestures.VICTORY:
             return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         # Configuration constants
@@ -623,15 +628,15 @@ class Finger:
     @cached_property
     def is_fully_bent(self) -> bool:
         """Check if the finger is fully bent based on fold angle threshold."""
-        if self.hand.gesture == DefaultGestures.CLOSED_FIST:
+        if self.hand.gesture == Gestures.CLOSED_FIST:
             return True
-        elif self.hand.gesture == DefaultGestures.OPEN_PALM:
+        elif self.hand.gesture == Gestures.OPEN_PALM:
             return False
-        elif self.hand.gesture == DefaultGestures.POINTING_UP:
+        elif self.hand.gesture == Gestures.POINTING_UP:
             return self.index != FingerIndex.INDEX
-        elif self.hand.gesture in (DefaultGestures.THUMB_UP, DefaultGestures.THUMB_DOWN):
+        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
             return self.index != FingerIndex.THUMB
-        elif self.hand.gesture == DefaultGestures.VICTORY:
+        elif self.hand.gesture == Gestures.VICTORY:
             return self.index not in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         if self.fold_angle is None:
@@ -723,7 +728,7 @@ class Finger:
         
         return touching
     
-    def draw(self, image: np.ndarray) -> np.ndarray:
+    def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw the finger on the image."""
         if not self.is_visible:
             return image
@@ -878,14 +883,12 @@ def create_hands_from_results(result: Optional[vision.GestureRecognizerResult]) 
         if result.handedness and i < len(result.handedness) and result.handedness[i]:
             handedness = Handedness.from_data(result.handedness[i][0].category_name)
         
-        # Get gesture information
+        # Get default gesture information
         gesture_type = None
-        gesture_score = None
         if result.gestures and i < len(result.gestures) and result.gestures[i]:
             gesture = result.gestures[i][0]  # Get the top gesture
-            gesture_type = None if gesture.category_name in (None, "None", "Unknown") else DefaultGestures(gesture.category_name)
-            gesture_score = gesture.score
-        
+            gesture_type = None if gesture.category_name in (None, "None", "Unknown") else Gestures(gesture.category_name)
+
         # Create palm object
         palm_landmarks = [hand_landmarks[idx] for idx in PALM_LANDMARKS]
         palm = Palm(landmarks=palm_landmarks)
@@ -897,7 +900,7 @@ def create_hands_from_results(result: Optional[vision.GestureRecognizerResult]) 
             wrist_landmark=hand_landmarks[HandLandmark.WRIST],
             palm=palm,
             gesture=gesture_type,
-            gesture_score=gesture_score
+            is_default_gesture=None if gesture_type is None else gesture_type in DEFAULT_GESTURES,
         )
 
         # Create finger objects
@@ -1029,8 +1032,121 @@ def pick_camera(filter_name=None):
         except ValueError:
             print("Invalid input. Please enter a number or 'q'")
 
+def preview_hands_info(frame: np.ndarray, hands: Hands) -> np.ndarray:
+    """Draw hands preview on frame and return the modified frame."""
+    frame = hands.preview_on_image(frame)
 
-def run(camera_info: CameraInfo):
+    if MIRROR_OUTPUT:
+        frame = cv2.flip(frame, 1)
+
+    # First, prepare all text to determine footer height
+    texts = []
+    line_height = 40
+    padding = 15
+
+    # Count visible hands to calculate positions from bottom
+    visible_hands = []
+    for hand in [hands.left, hands.right]:
+        if hand and hand.visible:
+            visible_hands.append(hand)
+
+    # Calculate text positions from bottom up
+    frame_height = frame.shape[0]
+    for i, hand in enumerate(visible_hands):
+        handedness_str = hand.handedness.name if hand.handedness else "Unknown"
+        facing_str = 'PALM' if hand.is_facing_camera else 'BACK'
+
+        text = f"{handedness_str} hand showing {facing_str}"
+
+        # Add gesture information if available
+        if hand.gesture:
+            text += f" - Gesture: {hand.gesture}"
+
+        # Position from bottom: padding + line_height * (total_hands - current_index)
+        y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
+        texts.append((text, y_pos))
+
+    # Add semi-transparent black footer based on actual text height
+    if texts:
+        footer_height = line_height * len(visible_hands) + padding
+        footer_y_start = frame_height - footer_height
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, footer_y_start), (frame.shape[1], frame_height), (0, 0, 0), -1)
+        frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
+
+        # Draw text with anti-aliasing
+        for text, y_pos in texts:
+            position = (10, y_pos)
+            # Draw with LINE_AA for anti-aliasing
+            cv2.putText(frame, text, position,
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+
+    return frame
+
+
+def print_hands_info(hands: Hands):
+    """Print important features of hands/fingers to console."""
+    if not hands.left and not hands.right:
+        print("No hands detected")
+        return
+    
+    for hand in [hands.left, hands.right]:
+        if not hand or not hand.visible:
+            continue
+        
+        handedness = hand.handedness.name if hand.handedness else "Unknown"
+        facing = "PALM" if hand.is_facing_camera else "BACK"
+        gesture = hand.gesture if hand.gesture else "None"
+        
+        print(f"\n{handedness} Hand - {facing} - Gesture: {gesture}")
+        
+        if hand.main_direction:
+            direction = f"({hand.main_direction[0]:.2f}, {hand.main_direction[1]:.2f})"
+            print(f"  Main direction: {direction}")
+        
+        if hand.all_fingers_touching:
+            print("  All adjacent fingers touching!")
+        
+        for finger in hand.fingers:
+            finger_name = finger.index.name
+            status = []
+            
+            if finger.is_straight:
+                status.append("straight")
+                if finger.straight_direction:
+                    dir_str = f"({finger.straight_direction[0]:.2f}, {finger.straight_direction[1]:.2f})"
+                    status.append(f"dir:{dir_str}")
+            
+            if finger.is_fully_bent:
+                status.append("bent")
+            
+            if finger.touches_thumb:
+                status.append("touches_thumb")
+            
+            if finger.touching_fingers:
+                touching_names = [f.name for f in finger.touching_fingers]
+                status.append(f"touching:{','.join(touching_names)}")
+            
+            if finger.fold_angle is not None:
+                status.append(f"angle:{finger.fold_angle:.0f}°")
+            
+            if finger.tip_direction:
+                dx, dy = finger.tip_direction
+                tip_angle = np.degrees(np.arctan2(dy, dx))
+                status.append(f"tip_angle:{tip_angle:.0f}°")
+
+            status_str = ", ".join(status) if status else "neutral"
+            print(f"    {finger_name}: {status_str}")
+
+
+def run(camera_info: CameraInfo, show_preview: bool = True):
+    try:
+        _run(camera_info, show_preview)
+    except KeyboardInterrupt:
+        print("\nExiting...")
+
+
+def _run(camera_info: CameraInfo, show_preview: bool = True):
     """Show a live preview of the selected camera with gesture recognition."""
     global latest_gesture_result
     
@@ -1052,18 +1168,21 @@ def run(camera_info: CameraInfo):
     # Set resolution based on calculated dimensions
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, new_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, new_height)
-    
-    window_name = f"Camera Preview - {camera_info.name}"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    
-    print(f"Showing preview for {camera_info.name}")
+
+    if show_preview:
+        window_name = f"Camera Preview - {camera_info.name}"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+        print(f"Showing preview for {camera_info.name}")
+
     print("Loading gesture recognizer model...")
     
     try:
         # Create gesture recognizer
         recognizer = create_gesture_recognizer(on_gesture_result)
         print("Gesture recognizer loaded successfully")
-        print("Press 'q' or ESC to quit")
+        if show_preview:
+            print("Press 'q' or ESC to quit")
     except Exception as e:
         print(f"\nError loading gesture recognizer: {e}")
         print("\nAborting - gesture recognition is required for this application.")
@@ -1094,82 +1213,43 @@ def run(camera_info: CameraInfo):
             # Perform gesture recognition
             recognizer.recognize_async(mp_image, timestamp_ms)
             
-            # Create hands object and draw results on frame
+            # Create hands object and process results
             hands = create_hands_from_results(latest_gesture_result)
-            frame = hands.draw(frame)
+            if show_preview:
+                frame = preview_hands_info(frame, hands)
+            else:
+                print_hands_info(hands)
 
-            if MIRROR_OUTPUT:
-                frame = cv2.flip(frame, 1)
-
-            # First, prepare all text to determine footer height
-            texts = []
-            line_height = 40
-            padding = 15
-            
-            # Count visible hands to calculate positions from bottom
-            visible_hands = []
-            for hand in [hands.left, hands.right]:
-                if hand and hand.visible:
-                    visible_hands.append(hand)
-            
-            # Calculate text positions from bottom up
-            frame_height = frame.shape[0]
-            for i, hand in enumerate(visible_hands):
-                handedness_str = hand.handedness.name if hand.handedness else "Unknown"
-                facing_str = 'PALM' if hand.is_facing_camera else 'BACK'
-                
-                text = f"{handedness_str} hand showing {facing_str}"
-
-                # Add gesture information if available
-                if hand.gesture and hand.gesture_score:
-                    text += f" - Gesture: {hand.gesture} ({hand.gesture_score:.2f})"
-                
-                # Position from bottom: padding + line_height * (total_hands - current_index)
-                y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
-                texts.append((text, y_pos))
-
-            # Add semi-transparent black footer based on actual text height
-            if texts:
-                footer_height = line_height * len(visible_hands) + padding
-                footer_y_start = frame_height - footer_height
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (0, footer_y_start), (frame.shape[1], frame_height), (0, 0, 0), -1)
-                frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
-
-                # Draw text with anti-aliasing
-                for text, y_pos in texts:
-                    position = (10, y_pos)
-                    # Draw with LINE_AA for anti-aliasing
-                    cv2.putText(frame, text, position,
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
-
-        cv2.imshow(window_name, frame)
+        if show_preview:
+            cv2.imshow(window_name, frame)
         
-        # Check for key press
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q') or key == 27:  # 'q' or ESC
-            break
+            # Check for key press
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == 27:  # 'q' or ESC
+                break
     
     cap.release()
-    cv2.destroyAllWindows()
+
+    if show_preview:
+        cv2.destroyAllWindows()
     
     if recognizer:
         recognizer.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(description="List and preview cameras")
-    parser.add_argument("filter", nargs="?", help="Optional camera name filter (case insensitive)")
-    args = parser.parse_args()
-    
-    selected = pick_camera(args.filter)
+def main(
+    filter_name: str = typer.Argument(None, help="Optional camera name filter (case insensitive)"),
+    preview: bool = typer.Option(False, "--preview", help="Show visual preview with hand tracking overlays")
+):
+    """List and preview cameras with optional gesture recognition."""
+    selected = pick_camera(filter_name)
     
     if selected:
         print(f"\nSelected: {selected}")
-        run(selected)
+        run(selected, show_preview=preview)
     else:
         print("\nNo camera selected.")
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
