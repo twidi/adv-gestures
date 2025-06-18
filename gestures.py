@@ -142,20 +142,17 @@ class Hands:
     
     def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw both hands on the image."""
-        # Create a copy to avoid modifying the original
-        annotated_image = image.copy()
-        
         # If no hands are detected, return original image
         if not self.left and not self.right:
-            return annotated_image
+            return image
 
         # Draw each hand
         if self.left:
-            annotated_image = self.left.preview_on_image(annotated_image)
+            image = self.left.preview_on_image(image)
         if self.right:
-            annotated_image = self.right.preview_on_image(annotated_image)
+            image = self.right.preview_on_image(image)
         
-        return annotated_image
+        return image
 
 
 @dataclass
@@ -1032,12 +1029,18 @@ def pick_camera(filter_name=None):
         except ValueError:
             print("Invalid input. Please enter a number or 'q'")
 
-def preview_hands_info(frame: np.ndarray, hands: Hands) -> np.ndarray:
+def preview_hands_info(frame: np.ndarray, hands: Hands, fps: float = 0.0) -> np.ndarray:
     """Draw hands preview on frame and return the modified frame."""
     frame = hands.preview_on_image(frame)
 
     if MIRROR_OUTPUT:
         frame = cv2.flip(frame, 1)
+
+    # Draw FPS in top-left corner
+    if fps > 0:
+        fps_text = f"FPS: {fps:.1f}"
+        cv2.putText(frame, fps_text, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
     # First, prepare all text to determine footer height
     texts = []
@@ -1084,10 +1087,15 @@ def preview_hands_info(frame: np.ndarray, hands: Hands) -> np.ndarray:
     return frame
 
 
-def print_hands_info(hands: Hands):
+def print_hands_info(hands: Hands, fps: float = 0.0):
     """Print important features of hands/fingers to console."""
+    # Print FPS first if available
+    if fps > 0:
+        print(f"\rFPS: {fps:.1f}", end="")
+    
     if not hands.left and not hands.right:
-        print("No hands detected")
+        if fps <= 0:  # Only print if FPS wasn't already printed
+            print("\rNo hands detected", end="")
         return
     
     for hand in [hands.left, hands.right]:
@@ -1139,41 +1147,49 @@ def print_hands_info(hands: Hands):
             print(f"    {finger_name}: {status_str}")
 
 
-def run(camera_info: CameraInfo, show_preview: bool = True):
-    try:
-        _run(camera_info, show_preview)
-    except KeyboardInterrupt:
-        print("\nExiting...")
-
-
-def _run(camera_info: CameraInfo, show_preview: bool = True):
-    """Show a live preview of the selected camera with gesture recognition."""
-    global latest_gesture_result
-    
+def init_camera_capture(camera_info: CameraInfo, show_preview: bool = True):
+    """Initialize camera capture and set resolution."""
     cap = cv2.VideoCapture(camera_info.device_index)
     
     if not cap.isOpened():
         print(f"Error: Could not open camera {camera_info.device_index}")
-        return
+        return None, None
     
     # Calculate dimensions based on DESIRED_SIZE while maintaining aspect ratio
     aspect_ratio = camera_info.width / camera_info.height
     if camera_info.width > camera_info.height:
-        new_width = DESIRED_SIZE
-        new_height = int(DESIRED_SIZE / aspect_ratio)
+        width = DESIRED_SIZE
+        height = int(DESIRED_SIZE / aspect_ratio)
     else:
-        new_height = DESIRED_SIZE
-        new_width = int(DESIRED_SIZE * aspect_ratio)
+        height = DESIRED_SIZE
+        width = int(DESIRED_SIZE * aspect_ratio)
     
     # Set resolution based on calculated dimensions
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, new_width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, new_height)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
+    cap_fps = cap.get(cv2.CAP_PROP_FPS)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+    print(f"Camera {camera_info.name} opened successfully at {width}x{height} with FPS: {cap_fps:.2f}")
+
+    window_name = None
     if show_preview:
         window_name = f"Camera Preview - {camera_info.name}"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-
         print(f"Showing preview for {camera_info.name}")
+    
+    return cap, window_name
+
+
+def run(camera_info: CameraInfo, show_preview: bool = True):
+    """Show a live preview of the selected camera with gesture recognition."""
+    global latest_gesture_result
+    
+    cap, window_name = init_camera_capture(camera_info, show_preview)
+    if cap is None:
+        return
 
     print("Loading gesture recognizer model...")
     
@@ -1190,8 +1206,11 @@ def _run(camera_info: CameraInfo, show_preview: bool = True):
         cv2.destroyAllWindows()
         return
     
-    # Initialize timestamp
+    # Initialize timestamp and FPS tracking
     start_time = time.time()
+    fps = 0.0
+    frame_count = 0
+    fps_timer = time.time()
     
     while True:
         ret, frame = cap.read()
@@ -1203,22 +1222,22 @@ def _run(camera_info: CameraInfo, show_preview: bool = True):
         if recognizer:
             # Convert frame to RGB (MediaPipe expects RGB)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
+
             # Create MediaPipe Image
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-            
+
             # Calculate timestamp in milliseconds
             timestamp_ms = int((time.time() - start_time) * 1000)
-            
+
             # Perform gesture recognition
             recognizer.recognize_async(mp_image, timestamp_ms)
-            
+
             # Create hands object and process results
             hands = create_hands_from_results(latest_gesture_result)
             if show_preview:
-                frame = preview_hands_info(frame, hands)
+                frame = preview_hands_info(frame, hands, fps)
             else:
-                print_hands_info(hands)
+                print_hands_info(hands, fps)
 
         if show_preview:
             cv2.imshow(window_name, frame)
@@ -1227,6 +1246,14 @@ def _run(camera_info: CameraInfo, show_preview: bool = True):
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:  # 'q' or ESC
                 break
+        
+        # Calculate FPS
+        frame_count += 1
+        current_time = time.time()
+        if current_time - fps_timer >= 1.0:  # Update FPS every second
+            fps = frame_count / (current_time - fps_timer)
+            frame_count = 0
+            fps_timer = current_time
     
     cap.release()
 
@@ -1237,16 +1264,67 @@ def _run(camera_info: CameraInfo, show_preview: bool = True):
         recognizer.close()
 
 
+def check_camera(camera_info: CameraInfo, show_preview: bool = True):
+    """Check camera functionality without gesture recognition."""
+    cap, window_name = init_camera_capture(camera_info, show_preview)
+    if cap is None:
+        return
+    
+    if not show_preview:
+        print("Camera check completed successfully.")
+        cap.release()
+        return
+    
+    print("Press 'q' or ESC to quit")
+    
+    # Initialize FPS tracking
+    fps = 0.0
+    frame_count = 0
+    fps_timer = time.time()
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Failed to capture frame")
+            break
+        
+        # Calculate FPS
+        frame_count += 1
+        current_time = time.time()
+        if current_time - fps_timer >= 1.0:  # Update FPS every second
+            fps = frame_count / (current_time - fps_timer)
+            frame_count = 0
+            fps_timer = current_time
+        
+        # Add FPS text to frame
+        cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        cv2.imshow(window_name, frame)
+        
+        # Check for key press
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q') or key == 27:  # 'q' or ESC
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
+
 def main(
     filter_name: str = typer.Argument(None, help="Optional camera name filter (case insensitive)"),
-    preview: bool = typer.Option(False, "--preview", help="Show visual preview with hand tracking overlays")
+    preview: bool = typer.Option(False, "--preview", help="Show visual preview window"),
+    check: bool = typer.Option(False, "--check", help="Only check camera without gesture recognition")
 ):
     """List and preview cameras with optional gesture recognition."""
     selected = pick_camera(filter_name)
     
     if selected:
         print(f"\nSelected: {selected}")
-        run(selected, show_preview=preview)
+        if check:
+            check_camera(selected, show_preview=preview)
+        else:
+            run(selected, show_preview=preview)
     else:
         print("\nNo camera selected.")
 
