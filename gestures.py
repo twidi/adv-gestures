@@ -7,12 +7,12 @@ import typer
 import glob
 import re
 import time
-from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from functools import cached_property
 from typing import NamedTuple, Optional, List, TypeAlias
 import numpy as np
 from mediapipe.tasks.python.components.containers import NormalizedLandmark
+from typing_extensions import ClassVar
 
 try:
     from linuxpy.video.device import Device, BufferType, PixelFormat
@@ -40,7 +40,6 @@ DESIRED_SIZE = 1280  # size of the max dimension of the camera
 
 # Global variable to store the latest gesture result
 latest_gesture_result = None
-
 
 class Gestures(str, Enum):
     # Those ones are created by MediaPipe
@@ -135,36 +134,77 @@ FINGER_COLORS = [
 ]
 
 
-@dataclass
 class Hands:
-    left: Hand = None
-    right: Hand = None
+
+    def __init__(self) -> None:
+        """Initialize both hands."""
+        self.left: Hand = Hand(handedness=Handedness.LEFT)
+        self.right: Hand = Hand(handedness=Handedness.RIGHT)
     
     def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw both hands on the image."""
-        # If no hands are detected, return original image
-        if not self.left and not self.right:
-            return image
-
-        # Draw each hand
-        if self.left:
-            image = self.left.preview_on_image(image)
-        if self.right:
-            image = self.right.preview_on_image(image)
-        
+        image = self.left.preview_on_image(image)
+        image = self.right.preview_on_image(image)
         return image
 
+    def reset(self) -> None:
+        """Reset both hands and clear all cached properties."""
+        self.left.reset()
+        self.right.reset()
 
-@dataclass
+
 class Hand:
-    visible: bool = False
-    handedness: Handedness | None = None  # None if not detected
-    wrist_landmark: Optional[NormalizedLandmark] = None
-    palm: Optional[Palm] = None
-    fingers: list[Finger] = field(default_factory=list)
-    gesture: Optional[Gestures] = None
-    is_default_gesture: bool = False
-    _finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = field(default_factory=dict)
+    _cached_props: ClassVar[tuple[str, ...]] = ('is_facing_camera', 'main_direction', 'all_fingers_touching')
+
+    def __init__(self, handedness: Handedness) -> None:
+        self.handedness = handedness
+
+        self.is_visible: bool = False
+        self.palm: Palm = Palm(hand=self)
+        self.fingers: list[Finger] = [
+            Finger(index=FingerIndex(finger_idx), hand=self)
+            for finger_idx in FingerIndex
+        ]
+        self.wrist_landmark: Optional[NormalizedLandmark] = None
+        self.gesture: Optional[Gestures] = None
+        self.is_default_gesture: bool = False
+        self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
+
+    def reset(self):
+        """Reset the hand state and clear all cached properties."""
+        # Clear cached properties by deleting them from __dict__
+        for prop in self._cached_props:
+            self.__dict__.pop(prop, None)
+
+        self.is_visible = False
+
+        # Clear finger touch cache
+        self._finger_touch_cache.clear()
+        
+        # Reset palm
+        if self.palm:
+            self.palm.reset()
+        
+        # Reset each finger
+        for finger in self.fingers:
+            finger.reset()
+    
+    def update(
+        self,
+        is_visible: bool,
+        wrist_landmark: Optional[NormalizedLandmark],
+        gesture: Optional[Gestures],
+        is_default_gesture: bool
+    ):
+        """Update the hand with new data."""
+        self.is_visible = is_visible
+        self.wrist_landmark = wrist_landmark
+        self.gesture = gesture
+        self.is_default_gesture = is_default_gesture
+
+    def __bool__(self):
+        """Check if the hand is visible and has a valid handedness."""
+        return self.is_visible
     
     @cached_property
     def is_facing_camera(self) -> bool:
@@ -175,7 +215,6 @@ class Hand:
         # Get key landmarks for cross product calculation
         wrist = self.wrist_landmark
         thumb_mcp = self.palm.landmarks[1]  # THUMB_CMC
-        index_mcp = self.palm.landmarks[2]  # INDEX_FINGER_MCP
         pinky_mcp = self.palm.landmarks[5]  # PINKY_MCP
         
         # Create vectors from wrist to thumb MCP and wrist to pinky MCP
@@ -293,7 +332,7 @@ class Hand:
     
     def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw the hand on the image."""
-        if not self.visible:
+        if not self:
             return image
 
         # Draw wrist landmark
@@ -346,10 +385,23 @@ class Hand:
         return image
 
 
-@dataclass
 class Palm:
-    landmarks: list[NormalizedLandmark] = field(default_factory=list)
+    _cached_props: ClassVar[tuple[str, ...]] = ('centroid',)
+
+    def __init__(self, hand: Hand) -> None:
+        self.hand = hand
+        self.landmarks: list[NormalizedLandmark] = []
+
+    def reset(self):
+        """Reset the palm and clear all cached properties."""
+        # Clear cached properties
+        for prop in self._cached_props:
+            self.__dict__.pop(prop, None)
     
+    def update(self, landmarks: list[NormalizedLandmark]):
+        """Update the palm with new landmarks."""
+        self.landmarks = landmarks
+
     @cached_property
     def centroid(self) -> tuple[float, float]:
         """Calculate the centroid of palm landmarks."""
@@ -380,12 +432,32 @@ class Palm:
         return image
 
 
-@dataclass
 class Finger:
-    index: FingerIndex
-    hand: Hand | None = None  # Reference to the parent hand, if needed
-    is_visible: bool = False
-    landmarks: list[NormalizedLandmark] = field(default_factory=list)
+
+    _cached_props: ClassVar[tuple[str, ...]] = (
+        'centroid', 'start_point', 'end_point', 'is_straight',
+        'straight_direction', 'is_fully_bent', 'fold_angle',
+        'tip_direction', 'touches_thumb', 'touching_fingers'
+    )
+
+    def __init__(self, index: FingerIndex, hand: Hand):
+        self.index = index
+        self.hand = hand
+        self.landmarks: list[NormalizedLandmark] = []
+
+    def reset(self):
+        """Reset the finger and clear all cached properties."""
+        # Clear cached properties
+        for prop in self._cached_props:
+            self.__dict__.pop(prop, None)
+    
+    def update(self, landmarks: list[NormalizedLandmark]):
+        """Update the finger with new landmarks."""
+        self.landmarks = landmarks
+
+    def __bool__(self):
+        """Check if the finger is visible and has landmarks."""
+        return len(self.landmarks) > 0
     
     @cached_property
     def centroid(self) -> tuple[float, float]:
@@ -727,9 +799,6 @@ class Finger:
     
     def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw the finger on the image."""
-        if not self.is_visible:
-            return image
-        
         height, width = image.shape[:2]
         
         # Draw all landmarks
@@ -867,60 +936,49 @@ def on_gesture_result(result: vision.GestureRecognizerResult,
     latest_gesture_result = result
 
 
-def create_hands_from_results(result: Optional[vision.GestureRecognizerResult]) -> Hands:
-    """Create and return a Hands object from gesture recognition results."""
-    hands = Hands()
-    
+def update_hands_from_results(hands: Hands, result: Optional[vision.GestureRecognizerResult]):
+    """Update the hands object with new gesture recognition results."""
+
+    # Reset all hands first
+    hands.reset()
+
     if not result or not result.hand_landmarks:
-        return hands
-    
+        return
+
     for i, hand_landmarks in enumerate(result.hand_landmarks):
         # Get handedness
         handedness = None
         if result.handedness and i < len(result.handedness) and result.handedness[i]:
             handedness = Handedness.from_data(result.handedness[i][0].category_name)
         
+        # Skip if handedness not detected
+        if not handedness:
+            continue
+
+        # Get the appropriate hand
+        hand = hands.left if handedness == Handedness.LEFT else hands.right
+
         # Get default gesture information
         gesture_type = None
         if result.gestures and i < len(result.gestures) and result.gestures[i]:
             gesture = result.gestures[i][0]  # Get the top gesture
             gesture_type = None if gesture.category_name in (None, "None", "Unknown") else Gestures(gesture.category_name)
 
-        # Create palm object
-        palm_landmarks = [hand_landmarks[idx] for idx in PALM_LANDMARKS]
-        palm = Palm(landmarks=palm_landmarks)
-
-        # Create hand object
-        hand = Hand(
-            visible=True,
-            handedness=handedness,
+        # Update hand data
+        hand.update(
+            is_visible=True,
             wrist_landmark=hand_landmarks[HandLandmark.WRIST],
-            palm=palm,
             gesture=gesture_type,
-            is_default_gesture=None if gesture_type is None else gesture_type in DEFAULT_GESTURES,
+            is_default_gesture=None if gesture_type is None else gesture_type in DEFAULT_GESTURES
         )
 
-        # Create finger objects
-        fingers = []
-        for finger_idx in FingerIndex:
-            finger_landmarks = FINGERS_LANDMARKS[finger_idx]
-            finger = Finger(
-                index=FingerIndex(finger_idx),
-                hand=hand,
-                is_visible=True,
-                landmarks=[hand_landmarks[idx] for idx in finger_landmarks]
-            )
-            fingers.append(finger)
+        # Update palm
+        hand.palm.update([hand_landmarks[idx] for idx in PALM_LANDMARKS])
 
-        hand.fingers = fingers
-
-        # Assign to correct hand based on handedness
-        if handedness == Handedness.LEFT:
-            hands.left = hand
-        elif handedness == Handedness.RIGHT:
-            hands.right = hand
-    
-    return hands
+        # Update fingers
+        for finger_idx, finger in enumerate(hand.fingers):
+            finger_landmarks = [hand_landmarks[idx] for idx in FINGERS_LANDMARKS[finger_idx]]
+            finger.update(landmarks=finger_landmarks)
 
 
 class CameraInfo(NamedTuple):
@@ -1029,7 +1087,7 @@ def pick_camera(filter_name=None):
         except ValueError:
             print("Invalid input. Please enter a number or 'q'")
 
-def preview_hands_info(frame: np.ndarray, hands: Hands, fps: float = 0.0) -> np.ndarray:
+def preview_hands_info(hands: Hands, fps: float, frame: np.ndarray) -> np.ndarray:
     """Draw hands preview on frame and return the modified frame."""
     frame = hands.preview_on_image(frame)
 
@@ -1050,7 +1108,7 @@ def preview_hands_info(frame: np.ndarray, hands: Hands, fps: float = 0.0) -> np.
     # Count visible hands to calculate positions from bottom
     visible_hands = []
     for hand in [hands.left, hands.right]:
-        if hand and hand.visible:
+        if hand:
             visible_hands.append(hand)
 
     # Calculate text positions from bottom up
@@ -1087,7 +1145,7 @@ def preview_hands_info(frame: np.ndarray, hands: Hands, fps: float = 0.0) -> np.
     return frame
 
 
-def print_hands_info(hands: Hands, fps: float = 0.0):
+def print_hands_info(hands: Hands, fps: float):
     """Print important features of hands/fingers to console."""
     # Print FPS first if available
     if fps > 0:
@@ -1099,7 +1157,7 @@ def print_hands_info(hands: Hands, fps: float = 0.0):
         return
     
     for hand in [hands.left, hands.right]:
-        if not hand or not hand.visible:
+        if not hand:
             continue
         
         handedness = hand.handedness.name if hand.handedness else "Unknown"
@@ -1187,6 +1245,9 @@ def run(camera_info: CameraInfo, show_preview: bool = True):
     """Show a live preview of the selected camera with gesture recognition."""
     global latest_gesture_result
     
+    # Initialize global hands instance
+    hands = Hands()
+    
     cap, window_name = init_camera_capture(camera_info, show_preview)
     if cap is None:
         return
@@ -1232,10 +1293,10 @@ def run(camera_info: CameraInfo, show_preview: bool = True):
             # Perform gesture recognition
             recognizer.recognize_async(mp_image, timestamp_ms)
 
-            # Create hands object and process results
-            hands = create_hands_from_results(latest_gesture_result)
+            # Update hands object with latest results
+            update_hands_from_results(hands, latest_gesture_result)
             if show_preview:
-                frame = preview_hands_info(frame, hands, fps)
+                frame = preview_hands_info(hands, fps, frame)
             else:
                 print_hands_info(hands, fps)
 
