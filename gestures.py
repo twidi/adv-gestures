@@ -113,6 +113,13 @@ class LandmarkGroups(LandmarkGroup, Enum):
 PALM_LANDMARKS = LandmarkGroups.PALM
 FINGERS_LANDMARKS = [LandmarkGroups.THUMB, LandmarkGroups.INDEX, LandmarkGroups.MIDDLE, LandmarkGroups.RING, LandmarkGroups.PINKY]
 
+# Adjacent finger pairs for touching detection
+ADJACENT_FINGER_PAIRS = [
+    (FingerIndex.INDEX, FingerIndex.MIDDLE),
+    (FingerIndex.MIDDLE, FingerIndex.RING),
+    (FingerIndex.RING, FingerIndex.PINKY)
+]
+
 
 @dataclass
 class Hands:
@@ -146,6 +153,7 @@ class Hand:
     fingers: list[Finger] = field(default_factory=list)
     gesture: Optional[DefaultGestures] = None
     gesture_score: Optional[float] = None
+    _finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = field(default_factory=dict)
     
     @cached_property
     def is_facing_camera(self) -> bool:
@@ -211,6 +219,66 @@ class Hand:
             return None
         
         return dx / magnitude, dy / magnitude
+    
+    def are_fingers_touching(self, finger1: FingerIndex, finger2: FingerIndex) -> bool:
+        """Check if two fingers are touching, computing and caching the result if needed."""
+        # Threshold for considering directions as "nearly the same"
+        angle_threshold = 2.0  # degrees
+        
+        # Check if already computed
+        key = (finger1, finger2)
+        if key in self._finger_touch_cache:
+            return self._finger_touch_cache[key]
+        
+        # Check if fingers are adjacent
+        is_adjacent = (finger1, finger2) in ADJACENT_FINGER_PAIRS or (finger2, finger1) in ADJACENT_FINGER_PAIRS
+        if not is_adjacent:
+            self._finger_touch_cache[key] = False
+            self._finger_touch_cache[(finger2, finger1)] = False
+            return False
+        
+        # Get the finger objects directly by index
+        finger1_obj = self.fingers[finger1]
+        finger2_obj = self.fingers[finger2]
+        
+        # Check if both fingers are straight
+        if not finger1_obj.is_straight or not finger2_obj.is_straight:
+            self._finger_touch_cache[key] = False
+            self._finger_touch_cache[(finger2, finger1)] = False
+            return False
+        
+        # Check if directions are similar
+        dir1 = finger1_obj.straight_direction
+        dir2 = finger2_obj.straight_direction
+        
+        if dir1 is None or dir2 is None:
+            self._finger_touch_cache[key] = False
+            self._finger_touch_cache[(finger2, finger1)] = False
+            return False
+        
+        # Calculate angle between directions using dot product
+        dot_product = dir1[0] * dir2[0] + dir1[1] * dir2[1]
+        # Clamp to [-1, 1] to handle numerical errors
+        dot_product = max(-1.0, min(1.0, dot_product))
+        
+        # Calculate angle in degrees
+        angle_rad = np.arccos(dot_product)
+        angle_deg = np.degrees(angle_rad)
+        
+        # Cache and return result
+        result = angle_deg <= angle_threshold
+        self._finger_touch_cache[key] = result
+        self._finger_touch_cache[(finger2, finger1)] = result
+
+        return result
+    
+    @cached_property
+    def all_fingers_touching(self) -> bool:
+        """Check if all adjacent fingers are touching each other."""
+        for finger1, finger2 in ADJACENT_FINGER_PAIRS:
+            if not self.are_fingers_touching(finger1, finger2):
+                return False
+        return True
     
     def draw(self, image: np.ndarray) -> np.ndarray:
         """Draw the hand on the image."""
@@ -526,8 +594,8 @@ class Finger:
         return angle_deg
     
     @cached_property
-    def direction(self) -> Optional[tuple[float, float]]:
-        """Calculate the direction of the finger using the last two points.
+    def tip_direction(self) -> Optional[tuple[float, float]]:
+        """Calculate the direction of the finger tip using the last two points.
         Returns a normalized vector (dx, dy) pointing from second-to-last to last point.
         Returns None if finger is fully bent."""
         if len(self.landmarks) < 2:
@@ -544,6 +612,32 @@ class Finger:
         # Calculate direction vector
         dx = last.x - second_last.x
         dy = last.y - second_last.y
+        
+        # Normalize the vector
+        magnitude = np.sqrt(dx**2 + dy**2)
+        if magnitude < 0.001:  # Avoid division by zero
+            return None
+        
+        return dx / magnitude, dy / magnitude
+    
+    @cached_property
+    def straight_direction(self) -> Optional[tuple[float, float]]:
+        """Calculate the overall direction of the finger from base to tip.
+        Returns a normalized vector (dx, dy) pointing from first to last point.
+        Returns None if finger is not straight."""
+        if not self.is_straight:
+            return None
+        
+        if len(self.landmarks) < 2:
+            return None
+        
+        # Get the first and last points
+        first = self.landmarks[0]
+        last = self.landmarks[-1]
+        
+        # Calculate direction vector
+        dx = last.x - first.x
+        dy = last.y - first.y
         
         # Normalize the vector
         magnitude = np.sqrt(dx**2 + dy**2)
@@ -614,6 +708,47 @@ class Finger:
 
         return distance < touch_threshold
     
+    @cached_property
+    def touching_fingers(self) -> list[FingerIndex]:
+        """Get list of adjacent fingers that this finger is touching.
+        Returns empty list for thumb, up to 1 for index/pinky, up to 2 for middle/ring."""
+        # Thumb never touches other fingers in this context
+        if self.index == FingerIndex.THUMB:
+            return []
+        
+        # Need reference to hand
+        if not self.hand:
+            return []
+        
+        touching = []
+        
+        # Define adjacent fingers based on finger index
+        if self.index == FingerIndex.INDEX:
+            # Index can only touch middle
+            if self.hand.are_fingers_touching(self.index, FingerIndex.MIDDLE):
+                touching.append(FingerIndex.MIDDLE)
+        
+        elif self.index == FingerIndex.MIDDLE:
+            # Middle can touch index and ring
+            if self.hand.are_fingers_touching(self.index, FingerIndex.INDEX):
+                touching.append(FingerIndex.INDEX)
+            if self.hand.are_fingers_touching(self.index, FingerIndex.RING):
+                touching.append(FingerIndex.RING)
+        
+        elif self.index == FingerIndex.RING:
+            # Ring can touch middle and pinky
+            if self.hand.are_fingers_touching(self.index, FingerIndex.MIDDLE):
+                touching.append(FingerIndex.MIDDLE)
+            if self.hand.are_fingers_touching(self.index, FingerIndex.PINKY):
+                touching.append(FingerIndex.PINKY)
+        
+        elif self.index == FingerIndex.PINKY:
+            # Pinky can only touch ring
+            if self.hand.are_fingers_touching(self.index, FingerIndex.RING):
+                touching.append(FingerIndex.RING)
+        
+        return touching
+    
     def draw(self, image: np.ndarray) -> np.ndarray:
         """Draw the finger on the image."""
         if not self.is_visible:
@@ -646,13 +781,13 @@ class Finger:
             cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
         
         # Draw finger direction arrow
-        if self.direction and self.end_point:
+        if self.tip_direction and self.end_point:
             # Get fingertip position
             tip_x = int(self.end_point[0] * width)
             tip_y = int(self.end_point[1] * height)
             
             # Convert normalized direction to pixel space
-            dx_norm, dy_norm = self.direction
+            dx_norm, dy_norm = self.tip_direction
             dx_pixel = dx_norm * width
             dy_pixel = dy_norm * height
             
@@ -696,6 +831,31 @@ class Finger:
                 
                 # Draw small red filled circle
                 cv2.circle(image, (pixel_x, pixel_y), 8, (0, 0, 255), -1)
+        
+        # Draw indicators for touching adjacent fingers
+        if self.touching_fingers and self.end_point and self.hand:
+            for touching_index in self.touching_fingers:
+                # Find the touching finger
+                touching_finger = None
+                for finger in self.hand.fingers:
+                    if finger.index == touching_index:
+                        touching_finger = finger
+                        break
+                
+                if touching_finger and touching_finger.end_point:
+                    # Draw a line between the fingertips
+                    my_tip_x = int(self.end_point[0] * width)
+                    my_tip_y = int(self.end_point[1] * height)
+                    other_tip_x = int(touching_finger.end_point[0] * width)
+                    other_tip_y = int(touching_finger.end_point[1] * height)
+                    
+                    # Draw a thick cyan line between touching fingers
+                    cv2.line(image, (my_tip_x, my_tip_y), (other_tip_x, other_tip_y), 
+                            (255, 255, 0), 4)
+                    
+                    # Draw small circles at connection points
+                    cv2.circle(image, (my_tip_x, my_tip_y), 5, (255, 255, 0), -1)
+                    cv2.circle(image, (other_tip_x, other_tip_y), 5, (255, 255, 0), -1)
         
         return image
 
