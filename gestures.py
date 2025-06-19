@@ -38,6 +38,10 @@ except ImportError:
 MIRROR_OUTPUT = True
 DESIRED_SIZE = 1280  # size of the max dimension of the camera
 
+# Finger straightness thresholds
+FINGER_STRAIGHT_THRESHOLD = 0.90      # Score above this is considered straight (strict)
+FINGER_NEARLY_STRAIGHT_THRESHOLD = 0.70  # Score above this is considered nearly straight (relaxed)
+
 # Global variable to store the latest gesture result
 latest_gesture_result = None
 
@@ -558,9 +562,10 @@ class Palm:
 class Finger:
 
     _cached_props: ClassVar[tuple[str, ...]] = (
-        'centroid', 'start_point', 'end_point', 'is_straight',
-        'straight_direction', 'is_fully_bent', 'fold_angle',
-        'tip_direction', 'touches_thumb', 'touching_fingers'
+        'centroid', 'start_point', 'end_point', 'straightness_score',
+        'is_straight', 'is_nearly_straight', 'straight_direction',
+        'is_fully_bent', 'fold_angle', 'tip_direction',
+        'touches_thumb', 'touching_fingers'
     )
 
     def __init__(self, index: FingerIndex, hand: Hand):
@@ -594,35 +599,39 @@ class Finger:
         return centroid_x, centroid_y
     
     @cached_property
-    def is_straight(self) -> bool:
-        """Check if the finger is straight by analyzing alignment and proportional spacing of its landmarks."""
-
-        if self.hand.gesture == Gestures.CLOSED_FIST:
-            return False
-        elif self.hand.gesture == Gestures.OPEN_PALM:
-            if self.index != FingerIndex.THUMB:
-                return True
-        elif self.hand.gesture == Gestures.POINTING_UP:
-            return self.index == FingerIndex.INDEX
-        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
-            return self.index == FingerIndex.THUMB
-        elif self.hand.gesture == Gestures.VICTORY:
-            return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
-
+    def straightness_score(self) -> float:
+        """Calculate a straightness score from 0 to 1, where 1 is perfectly straight and 0 is not straight."""
         # Configuration constants
         distal_segments_max_ratio = 1.5      # Maximum ratio between distal segments (PIP-DIP and DIP-TIP)
         distal_segments_max_ratio_back = 1.5 # For back of hand, allow more flexibility
-        max_angle_degrees = 15               # Minimum angle between consecutive segments (degrees)
-
+        max_angle_degrees = 15               # Maximum angle for perfect straightness (degrees)
+        
+        # Segment ratio scoring parameters
+        segment_ratio_score_at_threshold = 0.7   # Score when ratio equals threshold
+        segment_ratio_decay_rate = 2.0           # Exponential decay rate for excessive ratios
+        segment_ratio_linear_range = 0.15        # Score reduction from perfect (1.0) to threshold
+        
+        # Angle scoring parameters
+        angle_score_linear_range = 0.15          # Score reduction from perfect (1.0) to threshold
+        angle_score_at_threshold = 0.85          # Score when angle equals max_angle_degrees
+        angle_decay_rate = 20.0                  # Exponential decay rate for excessive angles (degrees)
+        
+        # Score combination weights
+        angle_score_weight = 0.7                 # Weight for angle score in final combination
+        segment_ratio_weight = 0.3               # Weight for segment ratio score in final combination
+        
+        # Numerical thresholds
+        min_magnitude_threshold = 0.001          # Minimum vector magnitude to avoid division by zero
+        
         if not self.hand.is_facing_camera:
             distal_segments_max_ratio = distal_segments_max_ratio_back
-
+        
         if len(self.landmarks) < 3:  # Need at least 3 points to check alignment
-            return False
-
+            return 0.0
+        
         # Skip thumb - will be handled separately later
         if self.index == FingerIndex.THUMB:
-            return self._is_straight_basic()
+            return self._straightness_score_basic()
         
         # Extract x and y coordinates for all finger landmarks
         x_coords = [landmark.x for landmark in self.landmarks]
@@ -638,17 +647,25 @@ class Finger:
         
         # For fingers (not thumb), expect 3 segments: MCP-PIP, PIP-DIP, DIP-TIP
         # The MCP-PIP segment is naturally longer, so check proportional consistency
+        segment_ratio_score = 1.0
         if len(segment_lengths) == 3:
             mcp_pip, pip_dip, dip_tip = segment_lengths  # proximal, middle, distal segments
-
+            
             # Check if the distal segments (PIP-DIP and DIP-TIP) are reasonably similar
             if pip_dip > 0 and dip_tip > 0:
                 ratio = max(pip_dip, dip_tip) / min(pip_dip, dip_tip)
                 if ratio > distal_segments_max_ratio:
-                    return False
-
+                    # Convert ratio to score: at threshold = segment_ratio_score_at_threshold, higher ratios decay
+                    excess_ratio = ratio - distal_segments_max_ratio
+                    # Use exponential decay for excessive ratios
+                    segment_ratio_score = segment_ratio_score_at_threshold * np.exp(-excess_ratio * segment_ratio_decay_rate)
+                else:
+                    # Linear interpolation from 1.0 (ratio=1) to (1.0 - segment_ratio_linear_range) at threshold
+                    segment_ratio_score = 1.0 - ((ratio - 1.0) / (distal_segments_max_ratio - 1.0)) * segment_ratio_linear_range
+        
         # Verify segment angles are relatively straight
         # Calculate angles between consecutive segments
+        max_found_angle = 0.0
         if len(segment_lengths) >= 2:
             for i in range(len(segment_lengths) - 1):
                 # Get vectors for consecutive segments
@@ -666,7 +683,7 @@ class Finger:
                 mag1 = np.sqrt(v1[0]**2 + v1[1]**2)
                 mag2 = np.sqrt(v2[0]**2 + v2[1]**2)
                 
-                if mag1 > 0.001 and mag2 > 0.001:  # Avoid division by zero
+                if mag1 > min_magnitude_threshold and mag2 > min_magnitude_threshold:  # Avoid division by zero
                     cos_angle = dot_product / (mag1 * mag2)
                     # Clamp to [-1, 1] to handle numerical errors
                     cos_angle = max(-1, min(1, cos_angle))
@@ -674,12 +691,109 @@ class Finger:
                     
                     # Convert to degrees for easier interpretation
                     angle_degrees = np.degrees(angle)
-                    
-                    # If angle is too sharp (segments bend too much), finger is not straight
-                    if angle_degrees > max_angle_degrees:
-                        return False
+                    max_found_angle = max(max_found_angle, angle_degrees)
         
-        return True
+        # Convert angle to score: 0° = 1.0, max_angle_degrees = angle_score_at_threshold, higher angles decay to 0
+        if max_found_angle <= max_angle_degrees:
+            # Perfect to acceptable range: linear from 1.0 to angle_score_at_threshold
+            angle_score = 1.0 - (max_found_angle / max_angle_degrees) * angle_score_linear_range
+        else:
+            # Beyond threshold: exponential decay from angle_score_at_threshold to 0
+            excess_angle = max_found_angle - max_angle_degrees
+            # Use exponential decay: score decreases rapidly after threshold
+            angle_score = angle_score_at_threshold * np.exp(-excess_angle / angle_decay_rate)
+        
+        # Combine both scores (weighted average: angle is more important)
+        combined_score = angle_score_weight * angle_score + segment_ratio_weight * segment_ratio_score
+
+        return float(combined_score)
+    
+    def _straightness_score_basic(self) -> float:
+        """Basic straightness score calculation for thumb or fallback."""
+        # Configuration constants
+        alignment_threshold = 0.01           # Maximum deviation for perfect alignment
+        max_deviation_for_zero_score = 0.1   # Deviation at which score becomes 0
+        min_denominator_threshold = 0.001    # Minimum line length to avoid division by zero
+        
+        if len(self.landmarks) < 3:
+            return 0.0
+        
+        x_coords = [landmark.x for landmark in self.landmarks]
+        y_coords = [landmark.y for landmark in self.landmarks]
+        
+        # Calculate the line from first to last point
+        x1, y1 = x_coords[0], y_coords[0]
+        x2, y2 = x_coords[-1], y_coords[-1]
+        
+        # Check intermediate points alignment
+        max_deviation = 0.0
+        for i in range(1, len(self.landmarks) - 1):
+            x, y = x_coords[i], y_coords[i]
+            
+            # Calculate perpendicular distance from point to line
+            # Using formula: |ax + by + c| / sqrt(a^2 + b^2)
+            # where line is: (y2-y1)x - (x2-x1)y + x2*y1 - y2*x1 = 0
+            numerator = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1)
+            denominator = np.sqrt((y2 - y1)**2 + (x2 - x1)**2)
+            
+            if denominator > min_denominator_threshold:  # Avoid division by zero
+                distance = numerator / denominator
+                max_deviation = max(max_deviation, distance)
+        
+        # Convert deviation to score
+        if max_deviation <= alignment_threshold:
+            score = 1.0
+        else:
+            # Linear decay from 1.0 to 0 as deviation increases
+            score = max(0.0, 1.0 - (max_deviation / max_deviation_for_zero_score))
+        
+        return float(score)
+    
+    @cached_property
+    def is_straight(self) -> bool:
+        """Check if the finger is straight based on the straightness score."""
+        # Handle gesture-based shortcuts first
+        if self.hand.gesture == Gestures.CLOSED_FIST:
+            return False
+        elif self.hand.gesture == Gestures.OPEN_PALM:
+            if self.index != FingerIndex.THUMB:
+                return True
+        elif self.hand.gesture == Gestures.POINTING_UP:
+            return self.index == FingerIndex.INDEX
+        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
+            return self.index == FingerIndex.THUMB
+        elif self.hand.gesture == Gestures.VICTORY:
+            return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
+        
+        # Use the straightness score with strict threshold
+        return self.straightness_score >= FINGER_STRAIGHT_THRESHOLD
+    
+    @cached_property
+    def is_nearly_straight(self) -> bool:
+        """Check if the finger is nearly straight based on the straightness score."""
+        # Handle gesture-based shortcuts first (same as is_straight for consistency)
+        if self.hand.gesture == Gestures.CLOSED_FIST:
+            return False
+        elif self.hand.gesture == Gestures.OPEN_PALM:
+            if self.index != FingerIndex.THUMB:
+                return False
+        elif self.hand.gesture == Gestures.POINTING_UP:
+            if self.index == FingerIndex.INDEX:
+                return False
+        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
+            if self.index == FingerIndex.THUMB:
+                return False
+        elif self.hand.gesture == Gestures.VICTORY:
+            if self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE):
+                return False
+        
+        # Use the straightness score with relaxed threshold
+        return FINGER_NEARLY_STRAIGHT_THRESHOLD <= self.straightness_score < FINGER_STRAIGHT_THRESHOLD
+
+    @cached_property
+    def is_nearly_straight_or_straight(self) -> bool:
+        """Check if the finger is either nearly straight or straight."""
+        return self.is_nearly_straight or self.is_straight
     
     def _is_straight_basic(self) -> bool:
         """Basic straightness check for thumb or fallback."""
@@ -934,15 +1048,52 @@ class Finger:
             y = int(landmark.y * height)
             cv2.circle(image, (x, y), 3, FINGER_COLORS[self.index], -1)
         
-        # Draw colored line for straight finger
-        if self.is_straight and self.start_point and self.end_point:
+        # Draw colored line for straight or nearly straight finger
+        if (self.is_straight or self.is_nearly_straight) and self.start_point and self.end_point:
             start_x = int(self.start_point[0] * width)
             start_y = int(self.start_point[1] * height)
             end_x = int(self.end_point[0] * width)
             end_y = int(self.end_point[1] * height)
             
             color = FINGER_COLORS[self.index]
-            cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
+            
+            if self.is_straight:
+                # Solid line for straight fingers
+                cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
+            else:
+                # Dashed line for nearly straight fingers
+                # Calculate total length and create dashed pattern
+                dx = end_x - start_x
+                dy = end_y - start_y
+                length = np.sqrt(dx**2 + dy**2)
+                
+                if length > 0:
+                    # Normalize direction
+                    dx_norm = dx / length
+                    dy_norm = dy / length
+                    
+                    # Draw dashed line with 10 pixel segments and 5 pixel gaps
+                    dash_length = 10
+                    gap_length = 5
+                    total_pattern = dash_length + gap_length
+                    
+                    current_pos = 0
+                    while current_pos < length:
+                        # Calculate dash start and end
+                        dash_start = current_pos
+                        dash_end = min(current_pos + dash_length, length)
+                        
+                        # Convert to pixel coordinates
+                        x1 = int(start_x + dx_norm * dash_start)
+                        y1 = int(start_y + dy_norm * dash_start)
+                        x2 = int(start_x + dx_norm * dash_end)
+                        y2 = int(start_y + dy_norm * dash_end)
+                        
+                        # Draw dash segment
+                        cv2.line(image, (x1, y1), (x2, y2), color, 3)
+                        
+                        # Move to next segment
+                        current_pos += total_pattern
         
         # Draw finger direction arrow
         if self.tip_direction and self.end_point:
