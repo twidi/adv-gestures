@@ -50,7 +50,11 @@ class Gestures(str, Enum):
     THUMB_UP = "Thumb_Up"
     VICTORY = "Victory"
     LOVE = "ILoveYou"
-    # Those ones are the ones we detect
+    # Those are the ones we detect
+    MIDDLE_FINGER = "Middle_Finger"
+    SPOCK = "Spock"
+    ROCK = "Rock"
+    OK = "OK"
 
 
 DEFAULT_GESTURES = {Gestures.CLOSED_FIST, Gestures.OPEN_PALM, Gestures.POINTING_UP, Gestures.THUMB_DOWN, Gestures.THUMB_UP, Gestures.VICTORY, Gestures.LOVE}
@@ -271,8 +275,14 @@ class Hand:
         
         return dx / magnitude, dy / magnitude
     
-    def are_fingers_touching(self, finger1: FingerIndex, finger2: FingerIndex) -> bool:
+    def are_fingers_touching(self, finger1: FingerIndex | Finger, finger2: FingerIndex | Finger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
+
+        if isinstance(finger1, Finger):
+            finger1 = finger1.index
+        if isinstance(finger2, Finger):
+            finger2 = finger2.index
+
         # Check if already computed
         key = (finger1, finger2)
         if key in self._finger_touch_cache:
@@ -430,6 +440,60 @@ class Hand:
             
         
         return image
+
+    def detect_gesture(self) -> Optional[Gestures]:
+        """Detect custom gestures.
+
+        Args:
+            hand: The hand to analyze
+
+        Returns:
+            The detected gesture or None if no custom gesture is detected
+        """
+
+        fingers = self.fingers
+        thumb = fingers[FingerIndex.THUMB]
+        index = fingers[FingerIndex.INDEX]
+        middle = fingers[FingerIndex.MIDDLE]
+        ring = fingers[FingerIndex.RING]
+        pinky = fingers[FingerIndex.PINKY]
+
+
+        # Check all custom gestures
+        for gesture in Gestures:
+
+            # Check for Middle Finger gesture
+            if gesture == Gestures.MIDDLE_FINGER:
+                # Middle finger is straight while index, ring, and pinky are not
+                if middle.is_straight and not index.is_straight and not ring.is_straight and not pinky.is_straight:
+                    return Gestures.MIDDLE_FINGER
+
+            elif gesture == Gestures.VICTORY:
+                # Index and middle fingers are straight, others are not (should be detected by default, but it's not always the case)
+                if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight:
+                    return Gestures.VICTORY
+
+            elif gesture == Gestures.SPOCK:
+                # Index + middle together, ring+pinky together, forming a V.
+                # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
+                if self.is_facing_camera and thumb.is_fully_bent \
+                    and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight \
+                    and index.is_touching(FingerIndex.MIDDLE) and ring.is_touching(FingerIndex.PINKY) \
+                    and not middle.is_touching(FingerIndex.RING):
+                        return Gestures.SPOCK
+
+            elif gesture == Gestures.ROCK:
+                # Index and pinky are straight, others are not. Hand must not be facing camera.
+                if not self.is_facing_camera and index.is_straight and pinky.is_straight \
+                    and not thumb.is_straight and not middle.is_straight and not ring.is_straight:
+                    return Gestures.ROCK
+
+            elif gesture == Gestures.OK:
+                # Index is touching thumb, others fingers are straight. Hand must be facing camera.
+                if self.is_facing_camera and index.touches_thumb and middle.is_straight and ring.is_straight and pinky.is_straight:
+                    return Gestures.OK
+
+        return None
 
 
 class Palm:
@@ -843,7 +907,11 @@ class Finger:
                 touching.append(FingerIndex.RING)
         
         return touching
-    
+
+    def is_touching(self, other: FingerIndex | Finger) -> bool:
+        """Check if this finger is touching another finger."""
+        return self.hand.are_fingers_touching(self.index, other.index if isinstance(other, Finger) else other)
+
     def preview_on_image(self, image: np.ndarray) -> np.ndarray:
         """Draw the finger on the image."""
         height, width = image.shape[:2]
@@ -1026,6 +1094,13 @@ def update_hands_from_results(hands: Hands, result: Optional[vision.GestureRecog
         for finger_idx, finger in enumerate(hand.fingers):
             finger_landmarks = [hand_landmarks[idx] for idx in FINGERS_LANDMARKS[finger_idx]]
             finger.update(landmarks=finger_landmarks)
+        
+        # Detect custom gestures if no default gesture was detected
+        if gesture_type is None:
+            custom_gesture = hand.detect_gesture()
+            if custom_gesture:
+                hand.gesture = custom_gesture
+                hand.is_default_gesture = False
 
 
 class CameraInfo(NamedTuple):
