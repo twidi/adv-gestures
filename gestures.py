@@ -468,7 +468,8 @@ class Hand:
 
             elif gesture == Gestures.VICTORY:
                 # Index and middle fingers are straight, others are not (should be detected by default, but it's not always the case)
-                if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight:
+                if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight \
+                    and not index.is_touching(FingerIndex.MIDDLE):
                     return gesture
 
             elif gesture == Gestures.SPOCK:
