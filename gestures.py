@@ -38,9 +38,9 @@ except ImportError:
 MIRROR_OUTPUT = True
 DESIRED_SIZE = 1280  # size of the max dimension of the camera
 
-# Finger straightness thresholds
-FINGER_STRAIGHT_THRESHOLD = 0.90      # Score above this is considered straight (strict)
-FINGER_NEARLY_STRAIGHT_THRESHOLD = 0.70  # Score above this is considered nearly straight (relaxed)
+# Finger straightness thresholds - can be customized per finger
+FINGER_STRAIGHT_THRESHOLD = 0.90      # Default score above this is considered straight (strict)
+FINGER_NEARLY_STRAIGHT_THRESHOLD = 0.70  # Default score above this is considered nearly straight (relaxed)
 
 # Global variable to store the latest gesture result
 latest_gesture_result = None
@@ -105,6 +105,10 @@ class Handedness(str, Enum):
         """Convert MediaPipe handedness string to Handedness enum."""
         return cls(handedness_str.lower())
 
+    def __str__(self) -> str:
+        """Return the string representation of the handedness."""
+        return self.value
+
 
 
 class FingerIndex(IntEnum):
@@ -136,6 +140,38 @@ ADJACENT_FINGER_MAX_ANGLES = {
     (FingerIndex.INDEX, FingerIndex.MIDDLE): 2.5,
     (FingerIndex.MIDDLE, FingerIndex.RING): 1.5,
     (FingerIndex.RING, FingerIndex.PINKY): 2.0,
+}
+
+# Per-finger straightness configuration
+# Each finger can have custom thresholds and parameters
+FINGER_STRAIGHTNESS_CONFIG_DEFAULT = {
+    'straight_threshold': 0.85,
+    'nearly_straight_threshold': 0.65,
+    # Parameters for advanced straightness calculation
+    'distal_segments_max_ratio': 1.5,
+    'distal_segments_max_ratio_back': 1.5,
+    'max_angle_degrees': 10,
+    'segment_ratio_score_at_threshold': 0.7,
+    'segment_ratio_decay_rate': 2.0,
+    'segment_ratio_linear_range': 0.15,
+    'angle_score_linear_range': 0.15,
+    'angle_score_at_threshold': 0.85,
+    'angle_decay_rate': 20.0,
+    'angle_score_weight': 0.7,
+    'segment_ratio_weight': 0.3,
+}
+FINGER_STRAIGHTNESS_CONFIG = {
+    FingerIndex.THUMB: {
+        'straight_threshold': 0.90,
+        'nearly_straight_threshold': 0.70,
+        # Parameters for thumb's basic straightness calculation
+        'alignment_threshold': 0.01,
+        'max_deviation_for_zero_score': 0.1,
+    },
+    FingerIndex.INDEX: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
+    FingerIndex.MIDDLE: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
+    FingerIndex.RING: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
+    FingerIndex.PINKY: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
 }
 
 # Colors for drawing fingers (BGR format for OpenCV)
@@ -314,7 +350,7 @@ class Hand:
         finger2_obj = self.fingers[finger2]
         
         # Check if both fingers are straight
-        if not finger1_obj.is_straight or not finger2_obj.is_straight:
+        if finger1_obj.is_not_straight_at_all or finger2_obj.is_not_straight_at_all:
             self._finger_touch_cache[key] = False
             self._finger_touch_cache[(finger2, finger1)] = False
             return False
@@ -469,12 +505,12 @@ class Hand:
             # Check for Middle Finger gesture
             if gesture == Gestures.MIDDLE_FINGER:
                 # Middle finger is straight while index, ring, and pinky are not
-                if middle.is_straight and not index.is_straight and not ring.is_straight and not pinky.is_straight:
+                if middle.is_straight and index.is_not_straight_at_all and ring.is_not_straight_at_all and pinky.is_not_straight_at_all:
                     return gesture
 
             elif gesture == Gestures.VICTORY:
                 # Index and middle fingers are straight, others are not (should be detected by default, but it's not always the case)
-                if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight \
+                if index.is_straight and middle.is_straight and ring.is_not_straight_at_all and pinky.is_not_straight_at_all and thumb.is_fully_bent \
                     and not index.is_touching(middle):
                     return gesture
 
@@ -483,19 +519,19 @@ class Hand:
                 # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
                 if self.is_facing_camera and thumb.is_fully_bent \
                     and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight \
-                    and index.is_touching(middle) and ring.is_touching(pinky) \
-                    and not middle.is_touching(ring):
+                    and index.is_touching(middle) and ring.is_touching(pinky) and not middle.is_touching(ring):
                         return gesture
 
             elif gesture == Gestures.ROCK:
                 # Index and pinky are straight, others are not. Hand must not be facing camera.
                 if not self.is_facing_camera and index.is_straight and pinky.is_straight \
-                    and not thumb.is_straight and not middle.is_straight and not ring.is_straight:
+                    and not thumb.is_straight and middle.is_not_straight_at_all and ring.is_not_straight_at_all:
                     return gesture
 
             elif gesture == Gestures.OK:
                 # Index is touching thumb, others fingers are straight. Hand must be facing camera.
-                if self.is_facing_camera and index.touches_thumb and middle.is_straight and ring.is_straight and pinky.is_straight:
+                if self.is_facing_camera and index.touches_thumb and middle.is_nearly_straight_or_straight \
+                        and ring.is_nearly_straight_or_straight and pinky.is_nearly_straight_or_straight:
                     return gesture
 
             elif gesture == Gestures.STOP:
@@ -511,14 +547,14 @@ class Hand:
 
             elif gesture == Gestures.GUN:
                 # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.
-                if thumb.is_nearly_straight_or_straight and index.is_straight and middle.is_straight \
-                    and index.is_touching(middle) and not ring.is_straight and not pinky.is_straight:
+                if thumb.is_nearly_straight_or_straight and index.is_nearly_straight_or_straight and middle.is_nearly_straight_or_straight \
+                    and index.is_touching(middle) and ring.is_not_straight_at_all and pinky.is_not_straight_at_all:
                     return gesture
 
             elif gesture == Gestures.FINGER_GUN:
                 # Same as gun but without the middle finger
-                if thumb.is_nearly_straight_or_straight and index.is_straight and not middle.is_straight \
-                    and not ring.is_straight and not pinky.is_straight:
+                if thumb.is_nearly_straight_or_straight and index.is_nearly_straight_or_straight and middle.is_not_straight_at_all \
+                    and ring.is_not_straight_at_all and pinky.is_not_straight_at_all:
                     return gesture
 
 
@@ -615,24 +651,27 @@ class Finger:
     @cached_property
     def straightness_score(self) -> float:
         """Calculate a straightness score from 0 to 1, where 1 is perfectly straight and 0 is not straight."""
-        # Configuration constants
-        distal_segments_max_ratio = 1.5      # Maximum ratio between distal segments (PIP-DIP and DIP-TIP)
-        distal_segments_max_ratio_back = 1.5 # For back of hand, allow more flexibility
-        max_angle_degrees = 15               # Maximum angle for perfect straightness (degrees)
+        # Get configuration for this finger
+        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
+        
+        # Configuration constants from per-finger config
+        distal_segments_max_ratio = config.get('distal_segments_max_ratio', 1.5)
+        distal_segments_max_ratio_back = config.get('distal_segments_max_ratio_back', 1.5)
+        max_angle_degrees = config.get('max_angle_degrees', 15)
         
         # Segment ratio scoring parameters
-        segment_ratio_score_at_threshold = 0.7   # Score when ratio equals threshold
-        segment_ratio_decay_rate = 2.0           # Exponential decay rate for excessive ratios
-        segment_ratio_linear_range = 0.15        # Score reduction from perfect (1.0) to threshold
+        segment_ratio_score_at_threshold = config.get('segment_ratio_score_at_threshold', 0.7)
+        segment_ratio_decay_rate = config.get('segment_ratio_decay_rate', 2.0)
+        segment_ratio_linear_range = config.get('segment_ratio_linear_range', 0.15)
         
         # Angle scoring parameters
-        angle_score_linear_range = 0.15          # Score reduction from perfect (1.0) to threshold
-        angle_score_at_threshold = 0.85          # Score when angle equals max_angle_degrees
-        angle_decay_rate = 20.0                  # Exponential decay rate for excessive angles (degrees)
+        angle_score_linear_range = config.get('angle_score_linear_range', 0.15)
+        angle_score_at_threshold = config.get('angle_score_at_threshold', 0.85)
+        angle_decay_rate = config.get('angle_decay_rate', 20.0)
         
         # Score combination weights
-        angle_score_weight = 0.7                 # Weight for angle score in final combination
-        segment_ratio_weight = 0.3               # Weight for segment ratio score in final combination
+        angle_score_weight = config.get('angle_score_weight', 0.7)
+        segment_ratio_weight = config.get('segment_ratio_weight', 0.3)
         
         # Numerical thresholds
         min_magnitude_threshold = 0.001          # Minimum vector magnitude to avoid division by zero
@@ -724,9 +763,12 @@ class Finger:
     
     def _straightness_score_basic(self) -> float:
         """Basic straightness score calculation for thumb or fallback."""
-        # Configuration constants
-        alignment_threshold = 0.01           # Maximum deviation for perfect alignment
-        max_deviation_for_zero_score = 0.1   # Deviation at which score becomes 0
+        # Get configuration for this finger
+        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
+        
+        # Configuration constants from per-finger config
+        alignment_threshold = config.get('alignment_threshold', 0.01)
+        max_deviation_for_zero_score = config.get('max_deviation_for_zero_score', 0.1)
         min_denominator_threshold = 0.001    # Minimum line length to avoid division by zero
         
         if len(self.landmarks) < 3:
@@ -779,8 +821,9 @@ class Finger:
         elif self.hand.gesture == Gestures.VICTORY:
             return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
         
-        # Use the straightness score with strict threshold
-        return self.straightness_score >= FINGER_STRAIGHT_THRESHOLD
+        # Use the straightness score with strict threshold from finger config
+        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
+        return self.straightness_score >= config.get('straight_threshold', FINGER_STRAIGHT_THRESHOLD)
     
     @cached_property
     def is_nearly_straight(self) -> bool:
@@ -801,13 +844,20 @@ class Finger:
             if self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE):
                 return False
         
-        # Use the straightness score with relaxed threshold
-        return FINGER_NEARLY_STRAIGHT_THRESHOLD <= self.straightness_score < FINGER_STRAIGHT_THRESHOLD
+        # Use the straightness score with relaxed threshold from finger config
+        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
+        nearly_threshold = config.get('nearly_straight_threshold', FINGER_NEARLY_STRAIGHT_THRESHOLD)
+        straight_threshold = config.get('straight_threshold', FINGER_STRAIGHT_THRESHOLD)
+        return nearly_threshold <= self.straightness_score < straight_threshold
 
-    @cached_property
+    @property
     def is_nearly_straight_or_straight(self) -> bool:
         """Check if the finger is either nearly straight or straight."""
         return self.is_nearly_straight or self.is_straight
+
+    @property
+    def is_not_straight_at_all(self) -> bool:
+        return not (self.is_straight or self.is_nearly_straight)
     
     def _is_straight_basic(self) -> bool:
         """Basic straightness check for thumb or fallback."""
@@ -1420,7 +1470,7 @@ def preview_hands_info(hands: Hands, fps: float, frame: np.ndarray) -> np.ndarra
 
         # Add gesture information if available
         if hand.gesture:
-            text += f" - Gesture: {hand.gesture}"
+            text += f" - Gesture: {hand.gesture} ({'detected' if hand.is_default_gesture else 'custom'})"
 
         # Position from bottom: padding + line_height * (total_hands - current_index)
         y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
