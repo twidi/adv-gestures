@@ -61,6 +61,8 @@ class Gestures(str, Enum):
     OK = "OK"
     STOP = "Stop"
     PINCH = "Pinch"
+    GUN = "Gun"
+    FINGER_GUN = "Finger_Gun"  # Gun without the middle finger
 
 
 DEFAULT_GESTURES = {Gestures.CLOSED_FIST, Gestures.OPEN_PALM, Gestures.POINTING_UP, Gestures.THUMB_DOWN, Gestures.THUMB_UP, Gestures.VICTORY, Gestures.LOVE}
@@ -473,7 +475,7 @@ class Hand:
             elif gesture == Gestures.VICTORY:
                 # Index and middle fingers are straight, others are not (should be detected by default, but it's not always the case)
                 if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight \
-                    and not index.is_touching(FingerIndex.MIDDLE):
+                    and not index.is_touching(middle):
                     return gesture
 
             elif gesture == Gestures.SPOCK:
@@ -481,8 +483,8 @@ class Hand:
                 # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
                 if self.is_facing_camera and thumb.is_fully_bent \
                     and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight \
-                    and index.is_touching(FingerIndex.MIDDLE) and ring.is_touching(FingerIndex.PINKY) \
-                    and not middle.is_touching(FingerIndex.RING):
+                    and index.is_touching(middle) and ring.is_touching(pinky) \
+                    and not middle.is_touching(ring):
                         return gesture
 
             elif gesture == Gestures.ROCK:
@@ -499,12 +501,24 @@ class Hand:
             elif gesture == Gestures.STOP:
                 # All fingers are straight and touching each others. Thumb is ignored. Hand must be facing camera.
                 if self.is_facing_camera and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight and \
-                    index.is_touching(FingerIndex.MIDDLE) and middle.is_touching(FingerIndex.RING) and ring.is_touching(FingerIndex.PINKY):
+                    index.is_touching(middle) and middle.is_touching(ring) and ring.is_touching(pinky):
                     return gesture
 
             elif gesture == Gestures.PINCH:
                 # Thumb is straight, fingers except index are not straight. Camera facing.
                 if self.is_facing_camera and thumb.is_straight and not middle.is_straight and not ring.is_straight and not pinky.is_straight:
+                    return gesture
+
+            elif gesture == Gestures.GUN:
+                # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.
+                if thumb.is_nearly_straight_or_straight and index.is_straight and middle.is_straight \
+                    and index.is_touching(middle) and not ring.is_straight and not pinky.is_straight:
+                    return gesture
+
+            elif gesture == Gestures.FINGER_GUN:
+                # Same as gun but without the middle finger
+                if thumb.is_nearly_straight_or_straight and index.is_straight and not middle.is_straight \
+                    and not ring.is_straight and not pinky.is_straight:
                     return gesture
 
 
