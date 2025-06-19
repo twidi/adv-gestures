@@ -55,9 +55,12 @@ class Gestures(str, Enum):
     SPOCK = "Spock"
     ROCK = "Rock"
     OK = "OK"
+    STOP = "Stop"
+    PINCH = "Pinch"
 
 
 DEFAULT_GESTURES = {Gestures.CLOSED_FIST, Gestures.OPEN_PALM, Gestures.POINTING_UP, Gestures.THUMB_DOWN, Gestures.THUMB_UP, Gestures.VICTORY, Gestures.LOVE}
+OVERRIDABLE_DEFAULT_GESTURES = {Gestures.OPEN_PALM}
 
 
 class HandLandmark(IntEnum):
@@ -332,7 +335,7 @@ class Hand:
         result = angle_deg <= max_angle
         
         # If not parallel enough, check if fingers are converging
-        if not result:
+        if not result and angle_deg < 5:
             # Get finger start and end points
             start1 = finger1_obj.start_point
             end1 = finger1_obj.end_point
@@ -451,12 +454,7 @@ class Hand:
             The detected gesture or None if no custom gesture is detected
         """
 
-        fingers = self.fingers
-        thumb = fingers[FingerIndex.THUMB]
-        index = fingers[FingerIndex.INDEX]
-        middle = fingers[FingerIndex.MIDDLE]
-        ring = fingers[FingerIndex.RING]
-        pinky = fingers[FingerIndex.PINKY]
+        thumb, index, middle, ring, pinky = self.fingers
 
 
         # Check all custom gestures
@@ -466,12 +464,12 @@ class Hand:
             if gesture == Gestures.MIDDLE_FINGER:
                 # Middle finger is straight while index, ring, and pinky are not
                 if middle.is_straight and not index.is_straight and not ring.is_straight and not pinky.is_straight:
-                    return Gestures.MIDDLE_FINGER
+                    return gesture
 
             elif gesture == Gestures.VICTORY:
                 # Index and middle fingers are straight, others are not (should be detected by default, but it's not always the case)
                 if index.is_straight and middle.is_straight and not ring.is_straight and not pinky.is_straight and not thumb.is_straight:
-                    return Gestures.VICTORY
+                    return gesture
 
             elif gesture == Gestures.SPOCK:
                 # Index + middle together, ring+pinky together, forming a V.
@@ -480,18 +478,31 @@ class Hand:
                     and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight \
                     and index.is_touching(FingerIndex.MIDDLE) and ring.is_touching(FingerIndex.PINKY) \
                     and not middle.is_touching(FingerIndex.RING):
-                        return Gestures.SPOCK
+                        return gesture
 
             elif gesture == Gestures.ROCK:
                 # Index and pinky are straight, others are not. Hand must not be facing camera.
                 if not self.is_facing_camera and index.is_straight and pinky.is_straight \
                     and not thumb.is_straight and not middle.is_straight and not ring.is_straight:
-                    return Gestures.ROCK
+                    return gesture
 
             elif gesture == Gestures.OK:
                 # Index is touching thumb, others fingers are straight. Hand must be facing camera.
                 if self.is_facing_camera and index.touches_thumb and middle.is_straight and ring.is_straight and pinky.is_straight:
-                    return Gestures.OK
+                    return gesture
+
+            elif gesture == Gestures.STOP:
+                # All fingers are straight and touching each others. Thumb is ignored. Hand must be facing camera.
+                if self.is_facing_camera and index.is_straight and middle.is_straight and ring.is_straight and pinky.is_straight and \
+                    index.is_touching(FingerIndex.MIDDLE) and middle.is_touching(FingerIndex.RING) and ring.is_touching(FingerIndex.PINKY):
+                    return gesture
+
+            elif gesture == Gestures.PINCH:
+                # Thumb is straight, fingers except index are not straight. Camera facing.
+                if self.is_facing_camera and thumb.is_straight and not middle.is_straight and not ring.is_straight and not pinky.is_straight:
+                    return gesture
+
+
 
         return None
 
@@ -1096,7 +1107,7 @@ def update_hands_from_results(hands: Hands, result: Optional[vision.GestureRecog
             finger.update(landmarks=finger_landmarks)
         
         # Detect custom gestures if no default gesture was detected
-        if gesture_type is None:
+        if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES:
             custom_gesture = hand.detect_gesture()
             if custom_gesture:
                 hand.gesture = custom_gesture
