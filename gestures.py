@@ -1574,6 +1574,8 @@ def init_camera_capture(camera_info: CameraInfo, show_preview: bool = True):
     # Set resolution based on calculated dimensions
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))  # Use MJPEG for better performance
+    cap.set(cv2.CAP_PROP_FPS, 30)
 
     cap_fps = cap.get(cv2.CAP_PROP_FPS)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
