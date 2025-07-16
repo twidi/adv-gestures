@@ -19,6 +19,17 @@ from mediapipe.tasks.python.components.containers import (  # type: ignore[impor
     NormalizedLandmark,
 )
 
+from .smoothing import (
+    BoxSmoother,
+    CoordSmoother,
+    GestureSmoother,
+    NumberSmoother,
+    SmoothedBase,
+    SmoothedProperty,
+    smoothed_bool,
+    smoothed_float,
+)
+
 try:
     from linuxpy.video.device import (  # type: ignore[import-untyped]
         BufferType,
@@ -329,7 +340,7 @@ class Hands:
         self.right.reset()
 
 
-class Hand:
+class Hand(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
         "is_facing_camera",
         "main_direction",
@@ -339,19 +350,23 @@ class Hand:
     )
 
     def __init__(self, handedness: Handedness) -> None:
+        super().__init__()
         self.handedness = handedness
 
         self.is_visible: bool = False
         self.palm: Palm = Palm(hand=self)
         self.fingers: list[Finger] = [Finger(index=FingerIndex(finger_idx), hand=self) for finger_idx in FingerIndex]
         self.wrist_landmark: NormalizedLandmark | None = None
-        self.gesture: Gestures | None = None
-        self.is_default_gesture: bool = False
+        self._raw_default_gesture: Gestures | None = None
+        self._raw_custom_gesture: Gestures | None = None
         self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
         self.all_landmarks: list[NormalizedLandmark] = []
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
+        # Call parent class reset for smoothed properties
+        super().reset()
+
         # Clear cached properties by deleting them from __dict__
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
@@ -373,24 +388,29 @@ class Hand:
         self,
         is_visible: bool,
         wrist_landmark: NormalizedLandmark | None,
-        gesture: Gestures | None,
-        is_default_gesture: bool,
+        default_gesture: Gestures | None,
         all_landmarks: list[NormalizedLandmark] | None = None,
     ) -> None:
-        """Update the hand with new data."""
+        """Update the hand with new data from MediaPipe.
+
+        Note: custom_gesture is not passed here because it needs to be calculated
+        after the hand data is updated. Use update_custom_gesture() for that.
+        """
         self.is_visible = is_visible
         self.wrist_landmark = wrist_landmark
-        self.gesture = gesture
-        self.is_default_gesture = is_default_gesture
+        self._raw_default_gesture = default_gesture
         if all_landmarks is not None:
             self.all_landmarks = all_landmarks
+
+    def update_custom_gesture(self, custom_gesture: Gestures | None) -> None:
+        """Update the custom gesture after detection."""
+        self._raw_custom_gesture = custom_gesture
 
     def __bool__(self) -> bool:
         """Check if the hand is visible and has a valid handedness."""
         return self.is_visible
 
-    @cached_property
-    def is_facing_camera(self) -> bool:
+    def _calc_is_facing_camera(self) -> bool:
         """Determine if the hand is showing its palm or back to the camera using cross product method."""
         if not self.handedness or not self.palm or len(self.palm.landmarks) < 6 or not self.wrist_landmark:
             return False
@@ -418,8 +438,9 @@ class Hand:
         # For left hand: positive z = palm facing camera
         return cast(bool, normal[2] < 0 if self.handedness == Handedness.RIGHT else normal[2] > 0)
 
-    @cached_property
-    def main_direction(self) -> tuple[float, float] | None:
+    is_facing_camera = smoothed_bool(_calc_is_facing_camera)
+
+    def _calc_main_direction(self) -> tuple[float, float] | None:
         """Calculate the main direction of the hand in the x/y plane.
         Returns a normalized vector (dx, dy) pointing from wrist to middle finger centroid.
         Note: This returns the direction in normalized coordinate space (0-1)."""
@@ -432,7 +453,11 @@ class Hand:
         if not middle_finger.landmarks:
             return None
 
-        middle_centroid_x, middle_centroid_y = middle_finger.centroid
+        centroid = middle_finger.centroid
+        if not centroid:
+            return None
+
+        middle_centroid_x, middle_centroid_y = centroid
 
         # Calculate direction vector from wrist to middle finger centroid
         dx = middle_centroid_x - self.wrist_landmark.x
@@ -444,6 +469,8 @@ class Hand:
             return None
 
         return dx / magnitude, dy / magnitude
+
+    main_direction = SmoothedProperty(_calc_main_direction, CoordSmoother)
 
     def are_fingers_touching(self, finger1: FingerIndex | Finger, finger2: FingerIndex | Finger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
@@ -548,8 +575,7 @@ class Hand:
 
         return bool(result)
 
-    @cached_property
-    def all_fingers_touching(self) -> bool:
+    def _calc_all_fingers_touching(self) -> bool:
         """Check if all adjacent fingers are touching each other."""
         for finger_pair in ADJACENT_FINGER_MAX_ANGLES:
             finger1, finger2 = finger_pair
@@ -557,8 +583,9 @@ class Hand:
                 return False
         return True
 
-    @cached_property
-    def bounding_box(self) -> Box | None:
+    all_fingers_touching = smoothed_bool(_calc_all_fingers_touching)
+
+    def _calc_bounding_box(self) -> Box | None:
         """Calculate the bounding box of the hand.
         Returns a Box in normalized coordinates."""
         if not self.all_landmarks:
@@ -569,8 +596,9 @@ class Hand:
 
         return Box(min(x_coords), min(y_coords), max(x_coords), max(y_coords))
 
-    @cached_property
-    def pinch_box(self) -> Box | None:
+    bounding_box = SmoothedProperty(_calc_bounding_box, BoxSmoother)
+
+    def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.
         Returns a Box in normalized coordinates, or None if not pinching."""
         if self.gesture != Gestures.PINCH:
@@ -598,6 +626,31 @@ class Hand:
         max_y = min(1, max_y)
 
         return Box(min_x, min_y, max_x, max_y)
+
+    pinch_box = SmoothedProperty(_calc_pinch_box, BoxSmoother)
+
+    def _calc_default_gesture(self) -> Gestures | None:
+        """Get the default gesture from MediaPipe."""
+        return self._raw_default_gesture
+
+    default_gesture = SmoothedProperty(_calc_default_gesture, GestureSmoother, default_value=None)
+
+    def _calc_custom_gesture(self) -> Gestures | None:
+        """Get the custom gesture if detected."""
+        return self._raw_custom_gesture
+
+    custom_gesture = SmoothedProperty(_calc_custom_gesture, GestureSmoother, default_value=None)
+
+    @property
+    def _raw_gesture(self) -> Gestures | None:
+        """Get the final raw gesture (custom if detected, otherwise default)."""
+        return self._raw_custom_gesture if self._raw_custom_gesture else self._raw_default_gesture
+
+    def _calc_gesture(self) -> Gestures | None:
+        """Get the final gesture for smoothing."""
+        return self._raw_gesture
+
+    gesture = SmoothedProperty(_calc_gesture, GestureSmoother, default_value=None)
 
     def preview_on_image(self, image: ImageArray) -> ImageArray:
         """Draw the hand on the image."""
@@ -759,7 +812,7 @@ class Hand:
                 # Thumb is straight, fingers except index are not straight. Camera facing.
                 if (
                     self.is_facing_camera
-                    and thumb.is_straight
+                    and thumb.is_nearly_straight_or_straight
                     and not middle.is_straight
                     and not ring.is_straight
                     and not pinky.is_straight
@@ -792,15 +845,19 @@ class Hand:
         return None
 
 
-class Palm:
+class Palm(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = ("centroid",)
 
     def __init__(self, hand: Hand) -> None:
+        super().__init__()
         self.hand = hand
         self.landmarks: list[NormalizedLandmark] = []
 
     def reset(self) -> None:
         """Reset the palm and clear all cached properties."""
+        # Call parent class reset for smoothed properties
+        super().reset()
+
         # Clear cached properties
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
@@ -809,8 +866,7 @@ class Palm:
         """Update the palm with new landmarks."""
         self.landmarks = landmarks
 
-    @cached_property
-    def centroid(self) -> tuple[float, float]:
+    def _calc_centroid(self) -> tuple[float, float]:
         """Calculate the centroid of palm landmarks."""
         if not self.landmarks:
             return 0.0, 0.0
@@ -820,11 +876,17 @@ class Palm:
 
         return centroid_x, centroid_y
 
+    centroid = SmoothedProperty(_calc_centroid, CoordSmoother)
+
     def preview_on_image(self, image: ImageArray, is_facing_camera: bool = False) -> ImageArray:
         """Draw the palm center on the image."""
         height, width = image.shape[:2]
 
-        palm_x, palm_y = self.centroid
+        centroid = self.centroid
+        if not centroid:
+            return image
+
+        palm_x, palm_y = centroid
 
         # Convert to pixel coordinates
         palm_center_x = int(palm_x * width)
@@ -839,7 +901,7 @@ class Palm:
         return image
 
 
-class Finger:
+class Finger(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
         "centroid",
         "start_point",
@@ -856,12 +918,16 @@ class Finger:
     )
 
     def __init__(self, index: FingerIndex, hand: Hand):
+        super().__init__()
         self.index = index
         self.hand = hand
         self.landmarks: list[NormalizedLandmark] = []
 
     def reset(self) -> None:
         """Reset the finger and clear all cached properties."""
+        # Call parent class reset for smoothed properties
+        super().reset()
+
         # Clear cached properties
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
@@ -874,8 +940,7 @@ class Finger:
         """Check if the finger is visible and has landmarks."""
         return len(self.landmarks) > 0
 
-    @cached_property
-    def centroid(self) -> tuple[float, float]:
+    def _calc_centroid(self) -> tuple[float, float]:
         """Calculate the centroid of all finger landmarks."""
         if not self.landmarks:
             return 0.0, 0.0
@@ -885,8 +950,9 @@ class Finger:
 
         return centroid_x, centroid_y
 
-    @cached_property
-    def straightness_score(self) -> float:
+    centroid = SmoothedProperty(_calc_centroid, CoordSmoother)
+
+    def _calc_straightness_score(self) -> float:
         """Calculate a straightness score from 0 to 1, where 1 is perfectly straight and 0 is not straight."""
         # Get configuration for this finger
         config = FINGER_STRAIGHTNESS_CONFIG[self.index]
@@ -1002,6 +1068,8 @@ class Finger:
 
         return float(combined_score)
 
+    straightness_score = smoothed_float(_calc_straightness_score)
+
     def _straightness_score_basic(self) -> float:
         """Basic straightness score calculation for thumb or fallback."""
         # Get configuration for this finger
@@ -1046,8 +1114,7 @@ class Finger:
 
         return float(score)
 
-    @cached_property
-    def is_straight(self) -> bool:
+    def _calc_is_straight(self) -> bool:
         """Check if the finger is straight based on the straightness score."""
         # Handle gesture-based shortcuts first
         if self.hand.gesture == Gestures.CLOSED_FIST:
@@ -1056,7 +1123,8 @@ class Finger:
             if self.index != FingerIndex.THUMB:
                 return True
         elif self.hand.gesture == Gestures.POINTING_UP:
-            return self.index == FingerIndex.INDEX
+            if self.index == FingerIndex.INDEX:
+                return True
         elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
             return self.index == FingerIndex.THUMB
         elif self.hand.gesture == Gestures.VICTORY:
@@ -1066,8 +1134,9 @@ class Finger:
         config = FINGER_STRAIGHTNESS_CONFIG[self.index]
         return self.straightness_score >= config.get("straight_threshold", FINGER_STRAIGHT_THRESHOLD)
 
-    @cached_property
-    def is_nearly_straight(self) -> bool:
+    is_straight = smoothed_bool(_calc_is_straight)
+
+    def _calc_is_nearly_straight(self) -> bool:
         """Check if the finger is nearly straight based on the straightness score."""
         # Handle gesture-based shortcuts first (same as is_straight for consistency)
         if self.hand.gesture == Gestures.CLOSED_FIST:
@@ -1090,6 +1159,8 @@ class Finger:
         nearly_threshold = config.get("nearly_straight_threshold", FINGER_NEARLY_STRAIGHT_THRESHOLD)
         straight_threshold = config.get("straight_threshold", FINGER_STRAIGHT_THRESHOLD)
         return nearly_threshold <= self.straightness_score < straight_threshold
+
+    is_nearly_straight = smoothed_bool(_calc_is_nearly_straight)
 
     @property
     def is_nearly_straight_or_straight(self) -> bool:
@@ -1130,22 +1201,23 @@ class Finger:
         max_distance = max(distances) if distances else 0
         return max_distance < alignment_threshold
 
-    @cached_property
-    def start_point(self) -> tuple[float, float] | None:
+    def _calc_start_point(self) -> tuple[float, float] | None:
         """Get the start point of the finger (base)."""
         if not self.landmarks:
             return None
         return self.landmarks[0].x, self.landmarks[0].y
 
-    @cached_property
-    def end_point(self) -> tuple[float, float] | None:
+    start_point = SmoothedProperty(_calc_start_point, CoordSmoother)
+
+    def _calc_end_point(self) -> tuple[float, float] | None:
         """Get the end point of the finger (tip)."""
         if not self.landmarks:
             return None
         return self.landmarks[-1].x, self.landmarks[-1].y
 
-    @cached_property
-    def fold_angle(self) -> float | None:
+    end_point = SmoothedProperty(_calc_end_point, CoordSmoother)
+
+    def _calc_fold_angle(self) -> float | None:
         """Calculate the fold angle at the PIP joint (angle between MCP->PIP and PIP->TIP vectors).
         Returns angle in degrees. 180 = straight, lower angles = more bent."""
         if len(self.landmarks) < 3:
@@ -1185,8 +1257,9 @@ class Finger:
 
         return float(angle_deg)
 
-    @cached_property
-    def tip_direction(self) -> tuple[float, float] | None:
+    fold_angle = SmoothedProperty(_calc_fold_angle, NumberSmoother)
+
+    def _calc_tip_direction(self) -> tuple[float, float] | None:
         """Calculate the direction of the finger tip using the last two points.
         Returns a normalized vector (dx, dy) pointing from second-to-last to last point.
         Returns None if finger is fully bent."""
@@ -1212,8 +1285,9 @@ class Finger:
 
         return dx / magnitude, dy / magnitude
 
-    @cached_property
-    def straight_direction(self) -> tuple[float, float] | None:
+    tip_direction = SmoothedProperty(_calc_tip_direction, CoordSmoother)
+
+    def _calc_straight_direction(self) -> tuple[float, float] | None:
         """Calculate the overall direction of the finger from base to tip.
         Returns a normalized vector (dx, dy) pointing from first to last point.
         Returns None if finger is not straight."""
@@ -1238,9 +1312,11 @@ class Finger:
 
         return dx / magnitude, dy / magnitude
 
-    @cached_property
-    def is_fully_bent(self) -> bool:
+    straight_direction = SmoothedProperty(_calc_straight_direction, CoordSmoother)
+
+    def _calc_is_fully_bent(self) -> bool:
         """Check if the finger is fully bent based on fold angle threshold."""
+        # Check gesture-based shortcuts first
         if self.hand.gesture == Gestures.CLOSED_FIST:
             return True
         elif self.hand.gesture == Gestures.OPEN_PALM:
@@ -1252,13 +1328,15 @@ class Finger:
         elif self.hand.gesture == Gestures.VICTORY:
             return self.index not in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
+        # Fall back to fold angle check
         if self.fold_angle is None:
             return True
 
         return self.fold_angle < (150 if self.index == FingerIndex.THUMB else 60.0)
 
-    @cached_property
-    def touches_thumb(self) -> bool:
+    is_fully_bent = smoothed_bool(_calc_is_fully_bent)
+
+    def _calc_touches_thumb(self) -> bool:
         """Check if this finger tip touches the thumb tip of the same hand."""
         # Skip if this finger is the thumb itself
         if self.index == FingerIndex.THUMB:
@@ -1299,6 +1377,8 @@ class Finger:
         touch_threshold = 0.05  # Adjust based on testing
 
         return distance < touch_threshold
+
+    touches_thumb = smoothed_bool(_calc_touches_thumb)
 
     @cached_property
     def touching_fingers(self) -> list[FingerIndex]:
@@ -1553,8 +1633,7 @@ def update_hands_from_results(hands: Hands, result: vision.GestureRecognizerResu
         hand.update(
             is_visible=True,
             wrist_landmark=hand_landmarks[HandLandmark.WRIST],
-            gesture=gesture_type,
-            is_default_gesture=gesture_type is not None and gesture_type in DEFAULT_GESTURES,
+            default_gesture=gesture_type,
             all_landmarks=list(hand_landmarks),
         )
 
@@ -1567,11 +1646,9 @@ def update_hands_from_results(hands: Hands, result: vision.GestureRecognizerResu
             finger.update(landmarks=finger_landmarks)
 
         # Detect custom gestures if no default gesture was detected
-        if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES:
-            custom_gesture = hand.detect_gesture()
-            if custom_gesture:
-                hand.gesture = custom_gesture
-                hand.is_default_gesture = False
+        hand.update_custom_gesture(
+            hand.detect_gesture() if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES else None
+        )
 
 
 class CameraInfo(NamedTuple):
@@ -1716,7 +1793,22 @@ def preview_hands_info(hands: Hands, fps: float, frame: ImageArray) -> ImageArra
 
         # Add gesture information if available
         if hand.gesture:
-            text += f" - Gesture: {hand.gesture} ({'detected' if hand.is_default_gesture else 'custom'})"
+            # Show the final gesture (smoothed)
+            text += f" - Gesture: {hand.gesture}"
+
+            # Show custom and default gestures
+            details = []
+
+            # Custom gesture info
+            if hand.custom_gesture:
+                details.append(f"custom: {hand.custom_gesture}")
+
+            # Default gesture info
+            if hand.default_gesture:
+                details.append(f"default: {hand.default_gesture}")
+
+            if details:
+                text += f" | {' | '.join(details)}"
 
         # Position from bottom: padding + line_height * (total_hands - current_index)
         y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
@@ -1734,7 +1826,7 @@ def preview_hands_info(hands: Hands, fps: float, frame: ImageArray) -> ImageArra
         for text, y_pos in texts:
             position = (10, y_pos)
             # Draw with LINE_AA for anti-aliasing
-            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
     return frame
 
