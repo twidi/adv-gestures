@@ -1414,6 +1414,12 @@ def pick_camera(filter_name=None):
         cameras = filtered_cameras
         print(f"Cameras matching '{filter_name}':")
     else:
+        # If no filter and only one camera available, auto-select it
+        if len(cameras) == 1:
+            selected = cameras[0]
+            print(f"Auto-selected camera: {selected}")
+            return selected
+        
         print("Available cameras:")
     
     cam_dict = {}
