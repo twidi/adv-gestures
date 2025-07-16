@@ -243,6 +243,73 @@ FINGER_COLORS = [
 ]
 
 
+class Box(NamedTuple):
+    """Represents a bounding box in normalized coordinates."""
+
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+    def to_pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
+        """Convert normalized coordinates to pixel coordinates."""
+        return (
+            int(self.min_x * width),
+            int(self.min_y * height),
+            int(self.max_x * width),
+            int(self.max_y * height),
+        )
+
+    def draw_dotted(
+        self,
+        image: ImageArray,
+        color: tuple[int, int, int] = (180, 180, 180),
+        thickness: int = 1,
+        dot_length: int = 5,
+        gap_length: int = 5,
+    ) -> ImageArray:
+        """Draw this box as a dotted rectangle on the image.
+
+        Args:
+            image: The image to draw on
+            color: BGR color tuple
+            thickness: Line thickness
+            dot_length: Length of each dot
+            gap_length: Length of gap between dots
+
+        Returns:
+            The image with the box drawn
+        """
+        height, width = image.shape[:2]
+        x1, y1, x2, y2 = self.to_pixels(width, height)
+
+        # Top edge
+        x = x1
+        while x < x2:
+            cv2.line(image, (x, y1), (min(x + dot_length, x2), y1), color, thickness)
+            x += dot_length + gap_length
+
+        # Bottom edge
+        x = x1
+        while x < x2:
+            cv2.line(image, (x, y2), (min(x + dot_length, x2), y2), color, thickness)
+            x += dot_length + gap_length
+
+        # Left edge
+        y = y1
+        while y < y2:
+            cv2.line(image, (x1, y), (x1, min(y + dot_length, y2)), color, thickness)
+            y += dot_length + gap_length
+
+        # Right edge
+        y = y1
+        while y < y2:
+            cv2.line(image, (x2, y), (x2, min(y + dot_length, y2)), color, thickness)
+            y += dot_length + gap_length
+
+        return image
+
+
 class Hands:
 
     def __init__(self) -> None:
@@ -263,7 +330,13 @@ class Hands:
 
 
 class Hand:
-    _cached_props: ClassVar[tuple[str, ...]] = ("is_facing_camera", "main_direction", "all_fingers_touching")
+    _cached_props: ClassVar[tuple[str, ...]] = (
+        "is_facing_camera",
+        "main_direction",
+        "all_fingers_touching",
+        "bounding_box",
+        "pinch_box",
+    )
 
     def __init__(self, handedness: Handedness) -> None:
         self.handedness = handedness
@@ -275,6 +348,7 @@ class Hand:
         self.gesture: Gestures | None = None
         self.is_default_gesture: bool = False
         self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
+        self.all_landmarks: list[NormalizedLandmark] = []
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
@@ -301,12 +375,15 @@ class Hand:
         wrist_landmark: NormalizedLandmark | None,
         gesture: Gestures | None,
         is_default_gesture: bool,
+        all_landmarks: list[NormalizedLandmark] | None = None,
     ) -> None:
         """Update the hand with new data."""
         self.is_visible = is_visible
         self.wrist_landmark = wrist_landmark
         self.gesture = gesture
         self.is_default_gesture = is_default_gesture
+        if all_landmarks is not None:
+            self.all_landmarks = all_landmarks
 
     def __bool__(self) -> bool:
         """Check if the hand is visible and has a valid handedness."""
@@ -480,6 +557,48 @@ class Hand:
                 return False
         return True
 
+    @cached_property
+    def bounding_box(self) -> Box | None:
+        """Calculate the bounding box of the hand.
+        Returns a Box in normalized coordinates."""
+        if not self.all_landmarks:
+            return None
+
+        x_coords = [landmark.x for landmark in self.all_landmarks]
+        y_coords = [landmark.y for landmark in self.all_landmarks]
+
+        return Box(min(x_coords), min(y_coords), max(x_coords), max(y_coords))
+
+    @cached_property
+    def pinch_box(self) -> Box | None:
+        """Calculate the bounding box around the pinch gesture fingertips.
+        Returns a Box in normalized coordinates, or None if not pinching."""
+        if self.gesture != Gestures.PINCH:
+            return None
+
+        # Get thumb and index finger tips
+        thumb_tip = self.fingers[FingerIndex.THUMB].end_point
+        index_tip = self.fingers[FingerIndex.INDEX].end_point
+
+        if not thumb_tip or not index_tip:
+            return None
+
+        # Calculate bounding box with some padding
+        padding = 0.02  # 2% padding in normalized coordinates
+
+        min_x = min(thumb_tip[0], index_tip[0]) - padding
+        max_x = max(thumb_tip[0], index_tip[0]) + padding
+        min_y = min(thumb_tip[1], index_tip[1]) - padding
+        max_y = max(thumb_tip[1], index_tip[1]) + padding
+
+        # Clamp to valid range [0, 1]
+        min_x = max(0, min_x)
+        max_x = min(1, max_x)
+        min_y = max(0, min_y)
+        max_y = min(1, max_y)
+
+        return Box(min_x, min_y, max_x, max_y)
+
     def preview_on_image(self, image: ImageArray) -> ImageArray:
         """Draw the hand on the image."""
         if not self:
@@ -529,6 +648,18 @@ class Hand:
 
                 # Draw arrow (cyan color)
                 cv2.arrowedLine(image, (start_x, start_y), (end_x, end_y), (255, 255, 0), 3, tipLength=0.3)
+
+        # Draw bounding box with dotted lines
+        if self.bounding_box:
+            image = self.bounding_box.draw_dotted(image)
+
+        # Draw pinch box with dotted lines in different color
+        if self.pinch_box:
+            image = self.pinch_box.draw_dotted(
+                image,
+                color=(0, 255, 255),  # Yellow
+                thickness=2,
+            )
 
         return image
 
@@ -1424,6 +1555,7 @@ def update_hands_from_results(hands: Hands, result: vision.GestureRecognizerResu
             wrist_landmark=hand_landmarks[HandLandmark.WRIST],
             gesture=gesture_type,
             is_default_gesture=gesture_type is not None and gesture_type in DEFAULT_GESTURES,
+            all_landmarks=list(hand_landmarks),
         )
 
         # Update palm
