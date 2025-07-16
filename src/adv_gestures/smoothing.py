@@ -4,14 +4,14 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from time import time
-from typing import Any, Generic, Literal, Protocol, TypeVar, overload
+from typing import Any, Generic, Protocol, TypeVar, overload
 
 # Smoothing configuration constants (in seconds)
 SMOOTHING_WINDOW = 0.15  # Window for numeric values
 BOOLEAN_DEBOUNCE = 0.1  # Debouncing for booleans
 GESTURE_CONFIDENCE_WINDOW = 0.5  # Window for gesture transitions
+SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving average (0-1)
 
-SmoothingMethod = Literal["average", "ema", "median"]
 T = TypeVar("T")
 P = TypeVar("P")
 
@@ -30,11 +30,9 @@ class NumberSmoother:
     def __init__(
         self,
         window: float = SMOOTHING_WINDOW,
-        method: SmoothingMethod = "ema",
-        ema_alpha: float = 0.3,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
         self.window = window
-        self.method = method
         self.ema_alpha = ema_alpha
         self.history: deque[TimedValue[float]] = deque()
         self._last_raw: float | None = 0.0
@@ -57,21 +55,15 @@ class NumberSmoother:
         return self._compute_smoothed()
 
     def _compute_smoothed(self) -> float:
-        """Compute smoothed value based on selected method."""
+        """Compute smoothed value using exponential moving average."""
         if not self.history:
             return 0.0
 
-        if self.method == "average":
-            return sum(tv.value for tv in self.history) / len(self.history)
-        elif self.method == "ema":
-            # Exponential moving average
-            result = self.history[0].value
-            for tv in list(self.history)[1:]:
-                result = self.ema_alpha * tv.value + (1 - self.ema_alpha) * result
-            return result
-        else:  # median
-            values = sorted(tv.value for tv in self.history)
-            return values[len(values) // 2]
+        # Exponential moving average
+        result = self.history[0].value
+        for tv in list(self.history)[1:]:
+            result = self.ema_alpha * tv.value + (1 - self.ema_alpha) * result
+        return result
 
     @property
     def raw(self) -> float | None:
@@ -86,11 +78,10 @@ class CoordSmoother:
         self,
         dimensions: int = 2,
         window: float = SMOOTHING_WINDOW,
-        method: SmoothingMethod = "ema",
-        ema_alpha: float = 0.3,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
         self.dimensions = dimensions
-        self.smoothers = [NumberSmoother(window, method, ema_alpha) for _ in range(dimensions)]
+        self.smoothers = [NumberSmoother(window, ema_alpha) for _ in range(dimensions)]
         self._last_raw: tuple[float, ...] | None = (0.0,) * dimensions
 
     def update(self, coord: tuple[float, ...] | None) -> tuple[float, ...] | None:
@@ -126,11 +117,10 @@ class BoxSmoother:
     def __init__(
         self,
         window: float = SMOOTHING_WINDOW,
-        method: SmoothingMethod = "ema",
-        ema_alpha: float = 0.3,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
-        self.min_smoother = CoordSmoother(2, window, method, ema_alpha)
-        self.max_smoother = CoordSmoother(2, window, method, ema_alpha)
+        self.min_smoother = CoordSmoother(2, window, ema_alpha)
+        self.max_smoother = CoordSmoother(2, window, ema_alpha)
         self._last_raw: Any = None  # Will be Box type from __init__.py
 
     def update(self, box: Any) -> Any:
