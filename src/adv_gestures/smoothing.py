@@ -6,10 +6,8 @@ from dataclasses import dataclass
 from time import time
 from typing import Any, Generic, Protocol, TypeVar, overload
 
-# Smoothing configuration constants (in seconds)
-SMOOTHING_WINDOW = 0.15  # Window for numeric values
-BOOLEAN_DEBOUNCE = 0.1  # Debouncing for booleans
-GESTURE_CONFIDENCE_WINDOW = 0.5  # Window for gesture transitions
+# Smoothing configuration constants
+SMOOTHING_WINDOW = 0.15  # Window for all smoothing operations (in seconds)
 SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving average (0-1)
 
 T = TypeVar("T")
@@ -155,53 +153,44 @@ class BoxSmoother:
 
 
 class BooleanSmoother:
-    """Smooths boolean values with time-based debouncing."""
+    """Smooths boolean values using exponential moving average."""
 
-    def __init__(self, debounce: float = BOOLEAN_DEBOUNCE):
-        self.debounce = debounce
-        self.current_state = False
-        self.last_change_time = 0.0
-        self.pending_state: bool | None = None
+    def __init__(
+        self,
+        window: float = SMOOTHING_WINDOW,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
+    ):
+        # Use NumberSmoother internally
+        self.smoother = NumberSmoother(window, ema_alpha)
         self._last_raw = False
 
     def update(self, value: bool) -> bool:
-        """Update with new boolean value and return debounced result."""
-        now = time()
+        """Update with new boolean value and return smoothed result."""
         self._last_raw = value
 
-        if value != self.current_state:
-            # Value changed from current state
-            if self.pending_state != value:
-                # New pending change
-                self.pending_state = value
-                self.last_change_time = now
-            elif (now - self.last_change_time) >= self.debounce:
-                # Pending change has been stable long enough
-                self.current_state = value
-                self.pending_state = None
-        else:
-            # Value matches current state, cancel any pending change
-            self.pending_state = None
+        # Convert bool to float (True=1.0, False=0.0)
+        numeric_result = self.smoother.update(1.0 if value else 0.0)
 
-        return self.current_state
+        # Convert back to bool (threshold at 0.5)
+        return numeric_result >= 0.5 if numeric_result is not None else False
 
     @property
     def raw(self) -> bool:
-        """Get the last raw (undebounced) value."""
+        """Get the last raw (unsmoothed) value."""
         return self._last_raw
 
 
 class GestureSmoother(Generic[T]):
-    """Smooths gesture transitions with majority voting and confidence threshold."""
+    """Smooths gesture transitions using exponentially weighted voting."""
 
     def __init__(
         self,
-        window: float = GESTURE_CONFIDENCE_WINDOW,
-        confidence_threshold: float = 0.6,
+        window: float = SMOOTHING_WINDOW,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
         default_value: T | None = None,
     ):
         self.window = window
-        self.confidence_threshold = confidence_threshold
+        self.ema_alpha = ema_alpha
         self.history: deque[TimedValue[T]] = deque()
         self.current_gesture = default_value
         self._last_raw = default_value
@@ -220,17 +209,19 @@ class GestureSmoother(Generic[T]):
         if not self.history:
             return self.current_gesture
 
-        # Count occurrences of each gesture
-        gesture_counts: dict[T, int] = {}
-        for tv in self.history:
-            gesture_counts[tv.value] = gesture_counts.get(tv.value, 0) + 1
+        # Calculate exponentially weighted votes
+        weights_by_gesture: dict[T, float] = {}
 
-        # Find the most common gesture
-        if gesture_counts:
-            most_common = max(gesture_counts.items(), key=lambda x: x[1])
-            # Only update if it meets the confidence threshold
-            if most_common[1] / len(self.history) >= self.confidence_threshold:
-                self.current_gesture = most_common[0]
+        # Iterate from newest to oldest (reversed)
+        for k, tv in enumerate(reversed(self.history)):
+            weight = (1 - self.ema_alpha) ** k
+            if tv.value not in weights_by_gesture:
+                weights_by_gesture[tv.value] = 0.0
+            weights_by_gesture[tv.value] += weight
+
+        # Find the gesture with maximum weight
+        if weights_by_gesture:
+            self.current_gesture = max(weights_by_gesture, key=weights_by_gesture.get)  # type: ignore[arg-type]
 
         return self.current_gesture
 
