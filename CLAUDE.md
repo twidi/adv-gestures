@@ -4,142 +4,78 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python-based gesture recognition application that uses MediaPipe for hand tracking and gesture detection. The main application (`gestures.py`) captures video from cameras and provides real-time hand gesture recognition with visual feedback.
-
-The repository is managed with Git version control.
-
-### Key Components
-
-- **Hand Detection & Tracking**: Uses MediaPipe's gesture recognizer with a pre-trained model (`gesture_recognizer.task`)
-- **Camera Management**: Supports multiple cameras via linuxpy.video for device enumeration and OpenCV for capture
-- **Visual Feedback**: Real-time overlay showing hand landmarks, palm/back detection, finger directions, and gesture classifications
-- **Data Structures**: Comprehensive hand modeling with `Hand`, `Palm`, `Finger` classes and geometric calculations
-
-### Architecture
-
-The application follows a modular design:
-- MediaPipe integration for ML-based gesture recognition
-- Structured data classes for hand anatomy representation
-- Camera abstraction layer for device management
-- Real-time visualization pipeline with OpenCV
-
-## Dependencies
-
-The application requires these Python packages:
-- `linuxpy` - Linux camera device access
-- `opencv-python` - Video capture and display
-- `mediapipe` - Hand tracking and gesture recognition
-- `numpy` - Numerical computations
-
-Install with: `pip install linuxpy opencv-python mediapipe numpy`
+This is a real-time hand gesture recognition application built in Python. It uses MediaPipe for hand tracking and OpenCV for video capture/display to detect and analyze hand gestures from camera input.
 
 ## Running the Application
 
-Main command: `python gestures.py [camera_filter]`
+The application is a single Python file that can be run directly:
 
-The application will:
-1. List available cameras (optionally filtered by name)
-2. Allow selection of a camera
-3. Load the MediaPipe gesture recognition model
-4. Start real-time gesture detection
+```bash
+# Basic usage - auto-select camera
+python gestures.py
 
-The gesture recognizer model file `gesture_recognizer.task` must be present in the working directory.
+# Filter cameras by name
+python gestures.py "webcam"
 
-## Hand Detection Capabilities
+# Preview mode (show available cameras)
+python gestures.py --preview
 
-The program provides comprehensive hand analysis and can detect:
+# Check mode (run without displaying video)
+python gestures.py --check
+```
 
-### Hand-Level Features
+## Dependencies
 
-- **Handedness Detection**: Distinguishes between left and right hands
-- **Hand Orientation**: Determines if palm or back of hand is facing the camera using cross-product analysis
-- **Hand Direction**: Calculates main hand direction vector from wrist to middle finger centroid
-- **Wrist Position**: Tracks wrist landmark as the base reference point
+Install required packages:
+```bash
+pip install typer linuxpy opencv-python mediapipe numpy typing-extensions
+```
 
-### Palm Detection
+**Important**: You also need the MediaPipe model file `gesture_recognizer.task` in the project root. This file is not included in the repository and must be downloaded separately.
 
-- **Palm Landmarks**: Tracks 6 key palm points (wrist, thumb CMC, and all finger MCP joints)
-- **Palm Centroid**: Calculates the geometric center of the palm region
-- **Visual Indicators**: Green circle for palm facing camera, red for back of hand
+## Architecture
 
-### Finger Analysis (Per Finger)
+The codebase is structured as a single-file application (`gestures.py`) with these key components:
 
-Each finger (thumb, index, middle, ring, pinky) provides detailed analysis:
+- **Camera Management**: Uses `linuxpy` to enumerate and select Linux camera devices
+- **Hand Tracking**: MediaPipe-based detection of hand landmarks for both hands
+- **Gesture Recognition**: 
+  - Built-in MediaPipe gestures (Closed Fist, Open Palm, Pointing Up, Thumb Up/Down, Victory, ILoveYou)
+  - Custom gestures detected through finger analysis (Middle Finger, Spock, Rock, OK, Stop, Pinch, Gun, Finger Gun)
+- **Data Classes**:
+  - `Hands`: Container for both hands
+  - `Hand`: Individual hand with palm, fingers, and gesture state
+  - `Palm`: Palm landmarks and orientation analysis
+  - `Finger`: Finger tracking with straightness, touching, and direction analysis
 
-#### Geometric Properties
-- **Finger Landmarks**: All joint positions (MCP, PIP, DIP, TIP for fingers; CMC, MCP, IP, TIP for thumb)
-- **Finger Centroid**: Geometric center of all finger landmarks
-- **Start/End Points**: Base (MCP) and tip positions
-- **Finger Direction**: Normalized direction vector from base to tip
+## Key Features to Understand
 
-#### State Detection
-- **Straightness**: Advanced algorithm analyzing joint alignment and segment proportions
-- **Bend State**: Determines if finger is fully bent based on fold angles
-- **Fold Angle**: Calculates bend angle at PIP joint (180° = straight, lower = more bent)
-- **Tip Direction**: Direction vector of fingertip based on last two landmarks
-
-#### Interaction Detection
-- **Thumb Touch**: Detects when any finger tip touches the thumb tip (3D distance analysis)
-- **Adjacent Finger Touch**: Identifies when neighboring fingers are touching using direction similarity
-- **All Fingers Touch**: Checks if all adjacent finger pairs are simultaneously touching
-
-### Gesture Recognition
-
-#### Built-in MediaPipe Gestures
-- Closed Fist
-- Open Palm  
-- Pointing Up
-- Thumb Up/Down
-- Victory (Peace sign)
-- ILoveYou (Rock and roll sign)
-
-#### Custom Gesture Analysis
-Beyond MediaPipe's built-in gestures, the program analyzes:
-- Individual finger states in any combination
-- Complex multi-finger interactions
-- Hand orientation relative to camera
-- Precise geometric relationships between fingers
-
-### Visual Feedback System
-
-The program, when called with `--preview`, provides rich visual overlays:
-- **Hand Landmarks**: All 21 hand landmarks with anatomically correct positioning
-- **Finger Lines**: Colored lines for straight fingers (blue=thumb, green=index, yellow=middle, magenta=ring, cyan=pinky)
-- **Direction Arrows**: White arrows showing individual finger tip directions
-- **Main Direction**: Cyan arrow from wrist showing overall hand direction
-- **Touch Indicators**: Red circles for thumb-finger contact, cyan lines for adjacent finger contact
-- **Palm/Back Indicator**: Green (palm) or red (back) circle at palm center
-
-### Technical Implementation
-
-- **Real-time Processing**: All calculations performed in real-time during video capture
-- **Caching**: Expensive calculations cached using Python's `@cached_property` decorator
-- **Coordinate System**: Uses MediaPipe's normalized coordinates (0-1 range)
-- **3D Analysis**: Incorporates depth information (z-coordinate) where available
-- **Threshold-based Detection**: Configurable thresholds for touch detection, straightness, etc.
-
-### Data Structure
-
-The program models hands hierarchically:
-- `Hands` → contains left/right `Hand` objects
-- `Hand` → contains `Palm` and list of `Finger` objects
-- `Finger` → contains landmarks and computed properties
-- All objects provide `preview_on_image()` methods for visual debugging
+1. **Finger Straightness Detection**: Each finger has configurable straightness thresholds (recently updated to per-finger values)
+2. **Touch Detection**: Detects when fingers touch each other or when thumb touches other fingers
+3. **Custom Gesture Logic**: Located in `Hand._analyze_gesture()` method, uses finger states and positions
+4. **Real-time Visualization**: Overlays hand landmarks, finger states, and detected gestures on video feed
 
 ## Development Notes
 
-- All development work is contained in the single file `gestures.py`
-- Testing requires human interaction in front of a camera - Claude Code cannot automatically verify if gesture recognition updates work correctly
-- Changes should be tested manually by running the application and performing gestures
+- No formal testing framework is set up - test by running the application
+- No linting configuration exists - maintain consistent code style with existing code
+- The project uses type hints throughout - maintain type annotations when adding code
+- Camera handling is Linux-specific due to `linuxpy` dependency
+- FPS is set to 30 and codec to MJPG for optimal performance
 
-## Available Tools
+## Common Tasks
 
-- **ast-grep** (v0.38.5) - Available at `/home/twidi/.npm-global/bin/ast-grep` for structural code search and refactoring
-  - Use for finding code patterns with AST-aware matching
-  - Supports Python and many other languages
-  - More precise than regex-based grep for code patterns
+### Adding New Gestures
+1. Define gesture logic in `Hand._analyze_gesture()` method
+2. Use existing finger state properties: `is_straight`, `is_nearly_straight`, `touches()`, `thumb_touches()`
+3. Add the gesture name to be displayed when detected
 
-## Model Requirements
+### Debugging Gesture Detection
+- Use the visual overlay to see finger states and landmarks
+- Check the `is_straight` and `is_nearly_straight` properties for finger positions
+- The straightness thresholds can be adjusted in the `Finger` class initialization
 
-The application expects a MediaPipe gesture recognition model file at `gesture_recognizer.task`. If missing, download from:
-https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
+### Camera Issues
+- Use `--preview` flag to list available cameras
+- Filter cameras by name if multiple are present
+- The application requires Linux due to camera enumeration method
