@@ -124,8 +124,8 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             finger_name = finger.index.name
             status = []
 
-            if finger.is_straight:
-                status.append("straight")
+            if finger.is_nearly_straight_or_straight:
+                status.append("straight" if finger.is_straight else "nearly_straight")
                 if finger.straight_direction:
                     dir_str = f"({finger.straight_direction[0]:.2f}, {finger.straight_direction[1]:.2f})"
                     status.append(f"dir:{dir_str}")

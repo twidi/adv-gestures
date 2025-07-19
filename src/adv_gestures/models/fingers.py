@@ -471,7 +471,7 @@ class Finger(SmoothedBase):
         """Calculate the overall direction of the finger from base to tip.
         Returns a normalized vector (dx, dy) pointing from first to last point.
         Returns None if finger is not straight."""
-        if not self.is_straight:
+        if self.is_not_straight_at_all:
             return None
 
         if len(self.landmarks) < 2:
