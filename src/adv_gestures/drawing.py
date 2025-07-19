@@ -359,16 +359,26 @@ def draw_hands_marks_and_info(
             # Show the final gesture (smoothed)
             text += f" - Gesture: {hand.gesture}"
 
-            # Show custom and default gestures
+            # Add gesture duration
+            if hand.gesture_duration > 0:
+                text += f" ({hand.gesture_duration:.1f}s)"
+
+            # Show custom and default gestures with durations
             details = []
 
             # Custom gesture info
             if hand.custom_gesture:
-                details.append(f"custom: {hand.custom_gesture}")
+                custom_text = f"custom: {hand.custom_gesture}"
+                if hand.custom_gesture_duration > 0:
+                    custom_text += f" ({hand.custom_gesture_duration:.1f}s)"
+                details.append(custom_text)
 
             # Default gesture info
             if hand.default_gesture:
-                details.append(f"default: {hand.default_gesture}")
+                default_text = f"default: {hand.default_gesture}"
+                if hand.default_gesture_duration > 0:
+                    default_text += f" ({hand.default_gesture_duration:.1f}s)"
+                details.append(default_text)
 
             if details:
                 text += f" | {' | '.join(details)}"

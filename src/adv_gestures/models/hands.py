@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 from math import sqrt
+from time import time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
 import numpy as np
@@ -157,6 +158,12 @@ class Hand(SmoothedBase):
         self._raw_custom_gesture: Gestures | None = None
         self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
         self.all_landmarks: list[NormalizedLandmark] = []
+        self._default_gesture_start_time: float | None = None
+        self._custom_gesture_start_time: float | None = None
+        self._gesture_start_time: float | None = None
+        self._last_default_gesture: Gestures | None = None
+        self._last_custom_gesture: Gestures | None = None
+        self._last_gesture: Gestures | None = None
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
@@ -466,15 +473,39 @@ class Hand(SmoothedBase):
 
     def _calc_default_gesture(self) -> Gestures | None:
         """Get the default gesture from MediaPipe."""
-        return self._raw_default_gesture
+        # Track gesture changes for duration calculation
+        current = self._raw_default_gesture
+        if current != self._last_default_gesture:
+            self._default_gesture_start_time = time()
+            self._last_default_gesture = current
+        return current
 
     default_gesture = SmoothedProperty(_calc_default_gesture, GestureSmoother, default_value=None)
 
+    @property
+    def default_gesture_duration(self) -> float:
+        """Get the duration in seconds that the current default gesture has been active."""
+        if self._default_gesture_start_time is None:
+            return 0.0
+        return time() - self._default_gesture_start_time
+
     def _calc_custom_gesture(self) -> Gestures | None:
         """Get the custom gesture if detected."""
-        return self._raw_custom_gesture
+        # Track gesture changes for duration calculation
+        current = self._raw_custom_gesture
+        if current != self._last_custom_gesture:
+            self._custom_gesture_start_time = time()
+            self._last_custom_gesture = current
+        return current
 
     custom_gesture = SmoothedProperty(_calc_custom_gesture, GestureSmoother, default_value=None)
+
+    @property
+    def custom_gesture_duration(self) -> float:
+        """Get the duration in seconds that the current custom gesture has been active."""
+        if self._custom_gesture_start_time is None:
+            return 0.0
+        return time() - self._custom_gesture_start_time
 
     @property
     def _raw_gesture(self) -> Gestures | None:
@@ -483,9 +514,21 @@ class Hand(SmoothedBase):
 
     def _calc_gesture(self) -> Gestures | None:
         """Get the final gesture for smoothing."""
-        return self._raw_gesture
+        # Track gesture changes for duration calculation
+        current = self._raw_gesture
+        if current != self._last_gesture:
+            self._gesture_start_time = time()
+            self._last_gesture = current
+        return current
 
     gesture = SmoothedProperty(_calc_gesture, GestureSmoother, default_value=None)
+
+    @property
+    def gesture_duration(self) -> float:
+        """Get the duration in seconds that the current gesture has been active."""
+        if self._gesture_start_time is None:
+            return 0.0
+        return time() - self._gesture_start_time
 
     def detect_gesture(self) -> Gestures | None:
         """Detect custom gestures.

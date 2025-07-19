@@ -111,7 +111,29 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
         facing = "PALM" if hand.is_facing_camera else "BACK"
         gesture = hand.gesture if hand.gesture else "None"
 
-        print(f"\n{handedness} Hand - {facing} - Gesture: {gesture}")
+        # Add gesture duration to the display
+        gesture_display = f"{gesture}"
+        if hand.gesture_duration > 0:
+            gesture_display += f" ({hand.gesture_duration:.1f}s)"
+
+        print(f"\n{handedness} Hand - {facing} - Gesture: {gesture_display}")
+
+        # Show custom and default gestures with durations if different from main gesture
+        gesture_details = []
+        if hand.custom_gesture and hand.custom_gesture != hand.gesture:
+            custom_text = f"custom: {hand.custom_gesture}"
+            if hand.custom_gesture_duration > 0:
+                custom_text += f" ({hand.custom_gesture_duration:.1f}s)"
+            gesture_details.append(custom_text)
+
+        if hand.default_gesture and hand.default_gesture != hand.gesture:
+            default_text = f"default: {hand.default_gesture}"
+            if hand.default_gesture_duration > 0:
+                default_text += f" ({hand.default_gesture_duration:.1f}s)"
+            gesture_details.append(default_text)
+
+        if gesture_details:
+            print(f"  Gesture details: {' | '.join(gesture_details)}")
 
         if hand.main_direction:
             direction = f"({hand.main_direction[0]:.2f}, {hand.main_direction[1]:.2f})"
