@@ -4,109 +4,81 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a real-time hand gesture recognition Python package called "adv-gestures". It uses MediaPipe for hand tracking and OpenCV for video capture/display to detect and analyze hand gestures from camera input.
+This is a Python 3.11+ hand gesture recognition application that uses MediaPipe and OpenCV for real-time hand tracking and gesture detection. The project is packaged as `adv-gestures` and provides both a library and CLI tool.
 
-## Installation and Running
+## Development Commands
 
-The project is a proper Python package that should be installed first:
+### Installation
+- `make install` - Install the project with dependencies
+- `make dev` - Install in development mode with all dev dependencies
 
-```bash
-# Install in development mode
-pip install -e .
+### Code Quality (IMPORTANT: Run these before completing any task)
+- `make pretty lint` - Run ALL prettifiers et linters 
 
-# Or install normally
-pip install .
-```
+### Running the Application (Development/testing interface)
+- `adv-gestures` - Run the main CLI application (requires camera access)
+- The app will prompt for camera selection if multiple cameras are available
 
-After installation, run the application using the `adv-gestures` command:
+### Cleaning
+- `make clean` - Clean build artifacts
+- `make full-clean` - Deep clean including all caches
 
-```bash
-# Basic usage - auto-select camera
-adv-gestures
+## Architecture Overview
 
-# Filter cameras by name
-adv-gestures "webcam"
+### Core Components
 
-# Preview mode (show available cameras)
-adv-gestures --preview
+1. **Recognizer** (`src/adv_gestures/recognizer.py`): Central class wrapping MediaPipe's gesture recognition. Handles:
+   - Async frame processing with callbacks
+   - Result storage and hand model updates
+   - Performance metrics (FPS, latency)
 
-# Check mode (run without displaying video)
-adv-gestures --check
-```
+2. **Models** (`src/adv_gestures/models/`): Type-safe data structures
+   - `hands.py`: Hand class with finger tracking and gesture detection
+   - `fingers.py`: Finger representations with landmark positions
+   - `gestures.py`: Gesture enums (both MediaPipe built-in and custom)
+   - `landmarks.py`: Hand landmark definitions
 
-## Dependencies
+3. **Smoothing System** (`src/adv_gestures/smoothing.py`): Sophisticated EMA-based smoothing
+   - Decorators: `@smoothed_bool`, `@smoothed_float`, `@smoothed_coord`
+   - Multiple smoother types for different data
+   - Configurable time windows and smoothing factors
 
-The project uses `pyproject.toml` to manage dependencies. Key requirements:
-- Python >= 3.11
-- typer, linuxpy, opencv-python, mediapipe, numpy, typing-extensions
+4. **CLI** (`src/adv_gestures/cli.py`): Development/testing interface
+   - Camera selection and preview
+   - Real-time visualization with metrics
+   - Debug drawing overlays
 
-Development dependencies include mypy, black, isort, and ruff for code quality.
+### Key Patterns
 
-**Important**: The MediaPipe model file `gesture_recognizer.task` will be automatically downloaded on first run if not present.
+- **Streaming Architecture**: Async callbacks for real-time processing
+- **Property-based Smoothing**: Decorators that provide both `.raw` and smoothed values
+- **Type Safety**: Extensive use of type hints, generics, and protocols
+- **Modular Gestures**: Easy extension with custom gesture definitions
 
-## Architecture
+### Important Implementation Notes
 
-The codebase is structured as a Python package in `src/adv_gestures/__init__.py` with these key components:
+1. **Coordinate Systems**: 
+   - MediaPipe provides normalized coordinates (0-1)
+   - Drawing functions convert to pixel coordinates
+   - Bounding boxes use pixel coordinates
 
-- **Camera Management**: Uses `linuxpy` to enumerate and select Linux camera devices
-- **Hand Tracking**: MediaPipe-based detection of hand landmarks for both hands
-- **Gesture Recognition**: 
-  - Built-in MediaPipe gestures (Closed Fist, Open Palm, Pointing Up, Thumb Up/Down, Victory, ILoveYou)
-  - Custom gestures detected through finger analysis (Middle Finger, Spock, Rock, OK, Stop, Pinch, Gun, Finger Gun)
-- **Data Classes**:
-  - `Hands`: Container for both hands
-  - `Hand`: Individual hand with palm, fingers, and gesture state
-  - `Palm`: Palm landmarks and orientation analysis
-  - `Finger`: Finger tracking with straightness, touching, and direction analysis
+2. **Gesture Detection Flow**:
+   - MediaPipe detects basic gestures
+   - Custom gestures detected via finger positions
+   - Override mechanism for incorrect MediaPipe detections
+   - All values smoothed for stability
 
-## Key Features to Understand
+3. **Performance Considerations**:
+   - Smoothed properties cached per frame
+   - Lazy initialization of smoothers
+   - Optional GPU acceleration via MediaPipe
 
-1. **Finger Straightness Detection**: Each finger has configurable straightness thresholds (recently updated to per-finger values)
-2. **Touch Detection**: Detects when fingers touch each other or when thumb touches other fingers
-3. **Custom Gesture Logic**: Located in `Hand._analyze_gesture()` method, uses finger states and positions
-4. **Real-time Visualization**: Overlays hand landmarks, finger states, and detected gestures on video feed
+4. **Linux-specific Features**: Uses `linuxpy` for camera enumeration
 
-## Development Notes
+## Code Style Requirements
 
-- No formal testing framework is set up - test by running the application
-- The project has a Makefile with linting and formatting tools
-- The project uses type hints throughout - maintain type annotations when adding code
-- Camera handling is Linux-specific due to `linuxpy` dependency
-- FPS is set to 30 and codec to MJPG for optimal performance
-
-## Code Quality
-
-**Important**: At the end of each conversation, run `make pretty lint` to ensure the code stays clean and properly formatted.
-
-## Type Checking Guidelines
-
-- Never tell mypy to ignore a file. Try to fix mypy errors when running mypy.
-- At maximum, use `# type: ignore[reason]` for specific lines that cannot be resolved
-
-## Documentation Maintenance
-
-**Important**: When making significant changes to the project:
-- Update README.md to reflect new features, usage instructions, or dependencies
-- Update CLAUDE.md to document new architectural decisions, development patterns, or important notes for future development
-- Keep both files accurate and in sync with the current state of the project
-
-## Common Tasks
-
-### Adding New Gestures
-1. Define gesture logic in `Hand._analyze_gesture()` method
-2. Use existing finger state properties: `is_straight`, `is_nearly_straight`, `touches()`, `thumb_touches()`
-3. Add the gesture name to be displayed when detected
-
-### Debugging Gesture Detection
-- Use the visual overlay to see finger states and landmarks
-- Check the `is_straight` and `is_nearly_straight` properties for finger positions
-- The straightness thresholds can be adjusted in the `Finger` class initialization
-
-### Camera Issues
-- Use `--preview` flag to list available cameras
-- Filter cameras by name if multiple are present
-- The application requires Linux due to camera enumeration method
-
-## Project Guidelines
-
-- All code and comments or any text (readme, etc) must be in English
+- **Type Hints**: ALWAYS use type hints (project uses `mypy --strict`). Use `list` and not `List`. Same for `dict`, `set`, etc.
+- **Formatting**: Code must pass `black` and `isort` formatting (`make pretty` command)
+- **Linting**: Must pass `ruff` checks (`make lint` command)
+- **No Comments**: Do not add useless comments. Especially no comments explaining what changed.
+- **Follow Existing Patterns**: Match the style of surrounding code

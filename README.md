@@ -1,149 +1,162 @@
-# Advanced Gestures (adv-gestures)
+# adv-gestures
 
-A real-time hand gesture recognition Python package using MediaPipe and OpenCV. Detects both built-in MediaPipe gestures and custom gestures through advanced finger state analysis.
+A Python library and CLI tool for real-time hand gesture recognition using MediaPipe and OpenCV.
 
 ## Features
 
-- **Real-time hand tracking** using MediaPipe
-- **Dual hand support** - tracks both left and right hands simultaneously
-- **Built-in gestures**: Closed Fist, Open Palm, Pointing Up, Thumb Up/Down, Victory, ILoveYou
-- **Custom gestures**: Middle Finger, Spock, Rock, OK, Stop, Pinch, Gun, Finger Gun
-- **Advanced finger analysis**: Straightness detection, touch detection, and direction tracking
-- **Camera auto-selection** with filtering capabilities
-- **Visual overlay** showing hand landmarks and detected gestures
-
-## Requirements
-
-- Python >= 3.11
-- Linux (required for camera enumeration via `linuxpy`)
-- Webcam or camera device
+- Real-time hand tracking and gesture detection
+- Built-in gesture recognition (peace, thumbs up, etc.)
+- Custom gesture detection system
+- Sophisticated smoothing for stable detection
+- Performance metrics (FPS, latency monitoring)
+- Multi-camera support with automatic enumeration
+- Type-safe implementation with strict typing
 
 ## Installation
 
-### From Source
+### From PyPI (when available)
+```bash
+pip install adv-gestures
+```
+
+### Development Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gestures.git
+git clone <repository-url>
 cd gestures
 
 # Install in development mode
-pip install -e .
-
-# Or install normally
-pip install .
+make dev
 ```
 
-The MediaPipe model file will be automatically downloaded on first run.
+## Quick Start
 
-## Usage
-
-After installation, use the `adv-gestures` command:
-
-### Basic Usage
+### CLI Usage (Development/testing interface)
 ```bash
-# Auto-select camera and start gesture recognition
+# Run with default camera 
 adv-gestures
+
+# The tool will prompt for camera selection if multiple cameras are available
 ```
 
-### Camera Selection
-```bash
-# Filter cameras by name (case-insensitive)
-adv-gestures "webcam"
+### Library Usage
+```python
+import cv2
+from adv_gestures import Recognizer, Hands, Gestures
 
-# Preview available cameras without starting recognition
-adv-gestures --preview
+# Initialize recognizer with model path using context manager
+with Recognizer("gesture_recognizer.task") as recognizer:
+    hands = Hands()
+    
+    # Open camera
+    cap = cv2.VideoCapture(0)
+    
+    try:
+        # Process frames
+        for frame, stream_info, result in recognizer.handle_opencv_capture(cap, hands):
+            # Check detected gestures
+            for hand in hands:
+                if hand.gesture == Gestures.VICTORY:
+                    print("Victory/Peace sign detected!")
+                elif hand.gesture == Gestures.THUMB_UP:
+                    print("Thumbs up!")
+            
+            # Display frame (optional)
+            cv2.imshow("Gesture Recognition", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        # Cleanup
+        cap.release()
+        cv2.destroyAllWindows()
 ```
 
-### Headless Mode
-```bash
-# Run gesture recognition without displaying video (for testing)
-adv-gestures --check
-```
+## Supported Gestures
 
-## Controls
+### Built-in MediaPipe Gestures
+- `CLOSED_FIST` - Closed hand
+- `OPEN_PALM` - Open hand facing camera
+- `POINTING_UP` - Index finger pointing up
+- `THUMB_DOWN` - Thumb pointing down
+- `THUMB_UP` - Thumb pointing up
+- `VICTORY` - Peace/Victory sign
+- `LOVE` - I Love You sign
 
-- **ESC**: Exit the application
-- The application displays:
-  - Hand landmarks (dots and connections)
-  - Finger states (straight/bent indicators)
-  - Detected gestures above each hand
-  - FPS counter in the top-left corner
+### Custom Gestures
+- `MIDDLE_FINGER` - Middle finger gesture
+- `SPOCK` - Vulcan salute
+- `ROCK` - Rock gesture (index and pinky up)
+- `OK` - OK sign
+- `STOP` - Stop gesture
+- `PINCH` - Thumb and index finger pinching
+- `GUN` - Gun gesture
+- `FINGER_GUN` - Finger gun (without middle finger)
 
 ## Architecture
 
-The package is structured as a Python module in `src/adv_gestures/__init__.py` with these key components:
+### Core Components
 
-- **Camera Management**: Automatic camera enumeration and selection
-- **Hand Detection**: MediaPipe-based landmark detection
-- **Gesture Analysis**: Combination of MediaPipe's built-in recognition and custom finger state analysis
-- **Visualization**: Real-time overlay of detection results
+- **Recognizer**: Central processing engine with async frame handling
+- **Hand Model**: Tracks hand state, fingers, and detected gestures
+- **Smoothing System**: EMA-based smoothing for stable detection
+- **CLI Interface**: Development and testing tool with visualization
 
-## Custom Gesture Detection
+### Key Features
 
-Custom gestures are detected by analyzing:
-- Individual finger straightness (with per-finger thresholds)
-- Finger-to-finger touch detection
-- Thumb-to-finger touch detection
-- Relative finger positions and directions
-
-## Performance
-
-- Optimized for 30 FPS with MJPG codec
-- Real-time processing with minimal latency
-- Efficient finger state calculations
+- **Streaming Architecture**: Async callbacks for real-time processing
+- **Property-based Smoothing**: Automatic smoothing with raw value access
+- **Type Safety**: Full type hints with mypy strict mode
+- **Extensible Design**: Easy to add custom gestures
 
 ## Development
 
-### Code Quality
+### Setup Development Environment
 ```bash
-# Format code and run linters
-make pretty lint
+make install  # Basic installation
+make dev      # Development installation with all tools
 ```
 
-### Adding New Gestures
-1. Edit the `Hand.detect_gesture()` method in `src/adv_gestures/__init__.py`
-2. Use existing finger state properties:
-   - `finger.is_straight`
-   - `finger.is_nearly_straight`
-   - `finger.is_touching(other_finger)`
-   - `finger.touches_thumb`
-3. Add your gesture logic and return the gesture name
+### Code Quality
+```bash
+make pretty lint  # Format and lint code
+```
 
 ### Project Structure
 ```
-gestures/
-├── src/
-│   └── adv_gestures/
-│       └── __init__.py  # Main package code
-├── pyproject.toml       # Package configuration
-├── Makefile            # Build and lint commands
-├── CLAUDE.md           # AI assistant instructions
-├── README.md           # This file
-└── gesture_recognizer.task  # MediaPipe model (auto-downloaded)
+adv-gestures/
+├── src/adv_gestures/
+│   ├── cli.py           # CLI application
+│   ├── recognizer.py    # Core recognition engine
+│   ├── smoothing.py     # Smoothing decorators
+│   └── models/          # Data models
+│       ├── hands.py     # Hand representation
+│       ├── fingers.py   # Finger tracking
+│       ├── gestures.py  # Gesture definitions
+│       └── landmarks.py # MediaPipe landmarks
+├── Makefile            # Development commands
+└── pyproject.toml      # Project configuration
 ```
 
-## Troubleshooting
+## Requirements
 
-### Camera Not Found
-- Use `--preview` to list available cameras
-- Ensure your camera is connected and recognized by Linux
-- Try filtering by camera name if multiple devices exist
+- Python 3.11+
+- Camera/webcam for real-time detection
+- Linux (for camera enumeration features)
 
-### Gesture Not Detected
-- Ensure good lighting conditions
-- Keep hand within camera frame
-- Check that fingers are clearly visible
-- Adjust straightness thresholds if needed
+## Performance
 
-### Performance Issues
-- Close other camera-using applications
-- Ensure system has sufficient resources
-- Check that FPS is stable around 30
+The system includes built-in performance monitoring:
+- Real-time FPS tracking
+- Processing latency measurement
+- Configurable smoothing parameters for accuracy vs responsiveness trade-off
 
 ## License
 
-[Your license here]
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-[Your contributing guidelines here]
+Contributions are welcome! Please ensure code passes all quality checks:
+```bash
+make pretty lint
+```

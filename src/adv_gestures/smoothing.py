@@ -124,7 +124,7 @@ class BoxSmoother:
     def update(self, box: Any) -> Any:
         """Update with new bounding box and return smoothed result."""
         # Import here to avoid circular import
-        from . import Box
+        from .models import Box
 
         self._last_raw = box
 

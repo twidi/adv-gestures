@@ -42,7 +42,7 @@ dev = [
 ]
 
 [project.scripts]
-adv-gestures = "adv_gestures:main"
+adv-gestures = "adv_gestures.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
