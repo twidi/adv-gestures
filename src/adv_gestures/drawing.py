@@ -134,10 +134,17 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
 
     # Draw pinch box with dotted lines in different color
     if hand.pinch_box:
+        # Check if thumb and index are touching
+        thumb, index, *_ = hand.fingers
+        if index.touches_thumb:
+            color = (0, 0, 255)  # Red when touching
+        else:
+            color = (0, 255, 255)  # Yellow when not touching
+
         image = draw_dotted_box(
             hand.pinch_box,
             image,
-            color=(0, 255, 255),  # Yellow
+            color=color,
             thickness=2,
         )
 
