@@ -177,8 +177,12 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
         y = int(landmark.y * height)
         cv2.circle(image, (x, y), 3, FINGER_COLORS[finger.index], -1)
 
+    if not finger.start_point or not finger.end_point:
+        # If no start or end point, we cannot draw the finger line
+        return image
+
     # Draw colored line for straight or nearly straight finger
-    if (finger.is_straight or finger.is_nearly_straight) and finger.start_point and finger.end_point:
+    if finger.is_straight or finger.is_nearly_straight:
         start_x = int(finger.start_point[0] * width)
         start_y = int(finger.start_point[1] * height)
         end_x = int(finger.end_point[0] * width)
@@ -225,7 +229,7 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
                     current_pos += total_pattern
 
     # Draw finger direction arrow
-    if finger.tip_direction and finger.end_point:
+    if finger.tip_direction:
         # Get fingertip position
         tip_x = int(finger.end_point[0] * width)
         tip_y = int(finger.end_point[1] * height)
@@ -250,7 +254,7 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
             cv2.arrowedLine(image, (tip_x, tip_y), (arrow_end_x, arrow_end_y), (255, 255, 255), 2, tipLength=0.4)
 
     # Draw red circle if this finger touches the thumb
-    if finger.touches_thumb and finger.end_point and finger.hand:
+    if finger.touches_thumb:
         # Get thumb finger
         thumb = None
         for other_finger in finger.hand.fingers:
@@ -276,8 +280,8 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
             cv2.circle(image, (pixel_x, pixel_y), 8, (0, 0, 255), -1)
 
     # Draw indicators for touching adjacent fingers
-    if finger.touching_fingers and finger.end_point and finger.hand:
-        for touching_index in finger.touching_fingers:
+    if finger.touching_adjacent_fingers:
+        for touching_index in finger.touching_adjacent_fingers:
             # Find the touching finger
             touching_finger = None
             for other_finger in finger.hand.fingers:

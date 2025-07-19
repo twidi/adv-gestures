@@ -136,8 +136,8 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             if finger.touches_thumb:
                 status.append("touches_thumb")
 
-            if finger.touching_fingers:
-                touching_names = [f.name for f in finger.touching_fingers]
+            if finger.touching_adjacent_fingers:
+                touching_names = [f.name for f in finger.touching_adjacent_fingers]
                 status.append(f"touching:{','.join(touching_names)}")
 
             if finger.fold_angle is not None:

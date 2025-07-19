@@ -42,7 +42,7 @@ class FingerIndex(IntEnum):
 # Adjacent finger pairs with their maximum angle thresholds for touching detection
 # Each pair maps to a maximum angle in degrees
 ADJACENT_FINGER_MAX_ANGLES = {
-    (FingerIndex.INDEX, FingerIndex.MIDDLE): 2.5,
+    (FingerIndex.INDEX, FingerIndex.MIDDLE): 3,
     (FingerIndex.MIDDLE, FingerIndex.RING): 1.5,
     (FingerIndex.RING, FingerIndex.PINKY): 2.0,
 }
@@ -94,7 +94,7 @@ class Finger(SmoothedBase):
         "fold_angle",
         "tip_direction",
         "touches_thumb",
-        "touching_fingers",
+        "touching_adjacent_fingers",
     )
 
     def __init__(self, index: FingerIndex, hand: Hand):
@@ -522,14 +522,7 @@ class Finger(SmoothedBase):
         if self.index == FingerIndex.THUMB:
             return False
 
-        if self.hand.gesture is not None:
-            return False
-
         if self.is_fully_bent:
-            return False
-
-        # Need a reference to the hand to access the thumb
-        if not self.hand or not self.hand.fingers:
             return False
 
         # Get the thumb finger
@@ -561,7 +554,7 @@ class Finger(SmoothedBase):
     touches_thumb = smoothed_bool(_calc_touches_thumb)
 
     @cached_property
-    def touching_fingers(self) -> list[FingerIndex]:
+    def touching_adjacent_fingers(self) -> list[FingerIndex]:
         """Get list of adjacent fingers that this finger is touching.
         Returns empty list for thumb, up to 1 for index/pinky, up to 2 for middle/ring."""
         # Thumb never touches other fingers in this context
@@ -577,30 +570,68 @@ class Finger(SmoothedBase):
         # Define adjacent fingers based on finger index
         if self.index == FingerIndex.INDEX:
             # Index can only touch middle
-            if self.hand.are_fingers_touching(self.index, FingerIndex.MIDDLE):
+            if self.hand.index_middle_touching:
                 touching.append(FingerIndex.MIDDLE)
 
         elif self.index == FingerIndex.MIDDLE:
             # Middle can touch index and ring
-            if self.hand.are_fingers_touching(self.index, FingerIndex.INDEX):
+            if self.hand.index_middle_touching:
                 touching.append(FingerIndex.INDEX)
-            if self.hand.are_fingers_touching(self.index, FingerIndex.RING):
+            if self.hand.middle_ring_touching:
                 touching.append(FingerIndex.RING)
 
         elif self.index == FingerIndex.RING:
             # Ring can touch middle and pinky
-            if self.hand.are_fingers_touching(self.index, FingerIndex.MIDDLE):
+            if self.hand.middle_ring_touching:
                 touching.append(FingerIndex.MIDDLE)
-            if self.hand.are_fingers_touching(self.index, FingerIndex.PINKY):
+            if self.hand.ring_pinky_touching:
                 touching.append(FingerIndex.PINKY)
 
         elif self.index == FingerIndex.PINKY:
             # Pinky can only touch ring
-            if self.hand.are_fingers_touching(self.index, FingerIndex.RING):
+            if self.hand.ring_pinky_touching:
                 touching.append(FingerIndex.RING)
 
         return touching
 
     def is_touching(self, other: FingerIndex | Finger) -> bool:
         """Check if this finger is touching another finger."""
-        return self.hand.are_fingers_touching(self.index, other.index if isinstance(other, Finger) else other)
+        other_index = other.index if isinstance(other, Finger) else other
+
+        if self.index == other_index:
+            return True  # A finger is always touching itself
+
+        # Special case: checking if a finger touches the thumb
+        if self.index == FingerIndex.THUMB and other_index != FingerIndex.THUMB:
+            # Get the other finger and check its touches_thumb property
+            other_finger = self.hand.fingers[other_index]
+            return other_finger.touches_thumb
+
+        if self.index != FingerIndex.THUMB and other_index == FingerIndex.THUMB:
+            # This finger checking if it touches thumb
+            return self.touches_thumb
+
+        # For non-thumb combinations, use smoothed properties
+        # Order fingers to avoid duplicates (always use lower index first)
+        finger1, finger2 = sorted((self.index, other_index))
+
+        if finger1 == FingerIndex.INDEX:
+            if finger2 == FingerIndex.MIDDLE:
+                return self.hand.index_middle_touching
+            if finger2 == FingerIndex.RING:
+                return self.hand.index_ring_touching
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.index_pinky_touching
+
+        if finger1 == FingerIndex.MIDDLE:
+            if finger2 == FingerIndex.RING:
+                return self.hand.middle_ring_touching
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.middle_pinky_touching
+
+        if finger1 == FingerIndex.RING:
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.ring_pinky_touching
+
+        # Should never reach here if all combinations are covered
+        return False

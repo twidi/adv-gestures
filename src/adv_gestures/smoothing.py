@@ -7,7 +7,7 @@ from time import time
 from typing import Any, Generic, Protocol, TypeVar, overload
 
 # Smoothing configuration constants
-SMOOTHING_WINDOW = 0.15  # Window for all smoothing operations (in seconds)
+SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)
 SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving average (0-1)
 
 T = TypeVar("T")

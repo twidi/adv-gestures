@@ -136,6 +136,13 @@ class Hand(SmoothedBase):
         "all_fingers_touching",
         "bounding_box",
         "pinch_box",
+        # All finger pairs (excluding thumb combinations which use touches_thumb)
+        "index_middle_touching",
+        "index_ring_touching",
+        "index_pinky_touching",
+        "middle_ring_touching",
+        "middle_pinky_touching",
+        "ring_pinky_touching",
     )
 
     def __init__(self, handedness: Handedness) -> None:
@@ -269,6 +276,8 @@ class Hand(SmoothedBase):
         if isinstance(finger2, Finger):
             finger2 = finger2.index
 
+        finger1, finger2 = sorted((finger1, finger2))
+
         # Check if already computed
         key = (finger1, finger2)
         if key in self._finger_touch_cache:
@@ -373,6 +382,43 @@ class Hand(SmoothedBase):
         return True
 
     all_fingers_touching = smoothed_bool(_calc_all_fingers_touching)
+
+    def _calc_index_middle_touching(self) -> bool:
+        """Check if index and middle fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.MIDDLE)
+
+    index_middle_touching = smoothed_bool(_calc_index_middle_touching)
+
+    def _calc_middle_ring_touching(self) -> bool:
+        """Check if middle and ring fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.MIDDLE, FingerIndex.RING)
+
+    middle_ring_touching = smoothed_bool(_calc_middle_ring_touching)
+
+    def _calc_ring_pinky_touching(self) -> bool:
+        """Check if ring and pinky fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.RING, FingerIndex.PINKY)
+
+    ring_pinky_touching = smoothed_bool(_calc_ring_pinky_touching)
+
+    # Non-adjacent finger combinations
+    def _calc_index_ring_touching(self) -> bool:
+        """Check if index and ring fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.RING)
+
+    index_ring_touching = smoothed_bool(_calc_index_ring_touching)
+
+    def _calc_index_pinky_touching(self) -> bool:
+        """Check if index and pinky fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.PINKY)
+
+    index_pinky_touching = smoothed_bool(_calc_index_pinky_touching)
+
+    def _calc_middle_pinky_touching(self) -> bool:
+        """Check if middle and pinky fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.MIDDLE, FingerIndex.PINKY)
+
+    middle_pinky_touching = smoothed_bool(_calc_middle_pinky_touching)
 
     def _calc_bounding_box(self) -> Box | None:
         """Calculate the bounding box of the hand.
