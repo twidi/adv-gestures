@@ -19,6 +19,7 @@ class Gestures(str, Enum):
     OK = "OK"
     STOP = "Stop"
     PINCH = "Pinch"
+    PINCH_TOUCH = "Pinch_Touch"  # Pinch with thumb and index touching
     GUN = "Gun"
     FINGER_GUN = "Finger_Gun"  # Gun without the middle finger
 

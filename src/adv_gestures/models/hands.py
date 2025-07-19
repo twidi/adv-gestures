@@ -443,7 +443,7 @@ class Hand(SmoothedBase):
     def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.
         Returns a Box in normalized coordinates, or None if not pinching."""
-        if self.gesture != Gestures.PINCH:
+        if self.gesture not in (Gestures.PINCH, Gestures.PINCH_TOUCH):
             return None
 
         # Get thumb and index finger tips
@@ -619,7 +619,7 @@ class Hand(SmoothedBase):
                 ):
                     return gesture
 
-            elif gesture == Gestures.PINCH:
+            elif gesture in (Gestures.PINCH, Gestures.PINCH_TOUCH):
                 # Thumb is straight, fingers except index are not straight. Camera facing.
                 if (
                     self.is_facing_camera
@@ -629,7 +629,7 @@ class Hand(SmoothedBase):
                     and not pinky.is_straight
                     and not index.is_fully_bent
                 ):
-                    return gesture
+                    return Gestures.PINCH_TOUCH if index.touches_thumb else Gestures.PINCH
 
             elif gesture == Gestures.GUN:
                 # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.

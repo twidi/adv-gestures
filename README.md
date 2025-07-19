@@ -89,6 +89,7 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `OK` - OK sign
 - `STOP` - Stop gesture
 - `PINCH` - Thumb and index finger pinching
+- `PINCH_TOUCH` - Pinch + index and thumb touching
 - `GUN` - Gun gesture
 - `FINGER_GUN` - Finger gun (without middle finger)
 

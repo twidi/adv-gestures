@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import cv2  # type: ignore[import-untyped]
 
-from .models import Box, Finger, FingerIndex, Hand, Hands, Palm
+from .models import Box, Finger, FingerIndex, Gestures, Hand, Hands, Palm
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -134,12 +134,11 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
 
     # Draw pinch box with dotted lines in different color
     if hand.pinch_box:
-        # Check if thumb and index are touching
-        thumb, index, *_ = hand.fingers
-        if index.touches_thumb:
-            color = (0, 0, 255)  # Red when touching
+        # Red for PINCH_TOUCH, yellow for regular PINCH
+        if hand.gesture == Gestures.PINCH_TOUCH:
+            color = (0, 0, 255)  # Red for pinch touch
         else:
-            color = (0, 255, 255)  # Yellow when not touching
+            color = (0, 255, 255)  # Yellow for regular pinch
 
         image = draw_dotted_box(
             hand.pinch_box,
