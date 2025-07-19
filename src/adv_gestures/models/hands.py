@@ -538,6 +538,7 @@ class Hand(SmoothedBase):
                     and not middle.is_straight
                     and not ring.is_straight
                     and not pinky.is_straight
+                    and not index.is_fully_bent
                 ):
                     return gesture
 
