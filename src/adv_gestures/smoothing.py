@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar, overload
 # Smoothing configuration constants
 SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)
 SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving average (0-1)
+GESTURE_SMOOTHING_WINDOW = 0.3  # Window for gesture smoothing operations (in seconds)
 
 T = TypeVar("T")
 P = TypeVar("P")
@@ -185,7 +186,7 @@ class GestureSmoother(Generic[T]):
 
     def __init__(
         self,
-        window: float = SMOOTHING_WINDOW,
+        window: float = GESTURE_SMOOTHING_WINDOW,
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
         default_value: T | None = None,
     ):
