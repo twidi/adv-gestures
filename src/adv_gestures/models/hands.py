@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
 import numpy as np
 
+from ..config import Config
 from ..smoothing import (
     BoxSmoother,
     CoordSmoother,
@@ -15,7 +16,16 @@ from ..smoothing import (
     SmoothedProperty,
     smoothed_bool,
 )
-from .fingers import ADJACENT_FINGER_MAX_ANGLES, Finger, FingerIndex
+from .fingers import (
+    AnyFinger,
+    Finger,
+    FingerIndex,
+    IndexFinger,
+    MiddleFinger,
+    PinkyFinger,
+    RingFinger,
+    Thumb,
+)
 from .gestures import OVERRIDABLE_DEFAULT_GESTURES, Gestures
 from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 
@@ -50,10 +60,11 @@ class Box(NamedTuple):
 
 class Hands:
 
-    def __init__(self) -> None:
+    def __init__(self, config: Config) -> None:
         """Initialize both hands."""
-        self.left: Hand = Hand(handedness=Handedness.LEFT)
-        self.right: Hand = Hand(handedness=Handedness.RIGHT)
+        self.config = config
+        self.left: Hand = Hand(handedness=Handedness.LEFT, config=config)
+        self.right: Hand = Hand(handedness=Handedness.RIGHT, config=config)
 
     def reset(self) -> None:
         """Reset both hands and clear all cached properties."""
@@ -134,13 +145,27 @@ class Hand(SmoothedBase):
         "ring_pinky_touching",
     )
 
-    def __init__(self, handedness: Handedness) -> None:
+    def __init__(self, handedness: Handedness, config: Config) -> None:
         super().__init__()
+        self.config = config
         self.handedness = handedness
 
         self.is_visible: bool = False
-        self.palm: Palm = Palm(hand=self)
-        self.fingers: list[Finger] = [Finger(index=FingerIndex(finger_idx), hand=self) for finger_idx in FingerIndex]
+        self.palm: Palm = Palm(hand=self, config=config)
+
+        self.thumb = Thumb(hand=self, config=config)
+        self.index = IndexFinger(hand=self, config=config)
+        self.middle = MiddleFinger(hand=self, config=config)
+        self.ring = RingFinger(hand=self, config=config)
+        self.pinky = PinkyFinger(hand=self, config=config)
+        self.fingers: tuple[AnyFinger, ...] = (
+            self.thumb,
+            self.index,
+            self.middle,
+            self.ring,
+            self.pinky,
+        )
+
         self.wrist_landmark: Landmark | None = None
         self._raw_default_gesture: Gestures | None = None
         self._raw_custom_gesture: Gestures | None = None
@@ -279,7 +304,7 @@ class Hand(SmoothedBase):
 
     main_direction = SmoothedProperty(_calc_main_direction, CoordSmoother)
 
-    def are_fingers_touching(self, finger1: FingerIndex | Finger, finger2: FingerIndex | Finger) -> bool:
+    def are_fingers_touching(self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
 
         if isinstance(finger1, Finger):
@@ -295,13 +320,14 @@ class Hand(SmoothedBase):
             return self._finger_touch_cache[key]
 
         # Check if fingers are adjacent and get their max angle threshold
-        max_angle = None
-        if (finger1, finger2) in ADJACENT_FINGER_MAX_ANGLES:
-            max_angle = ADJACENT_FINGER_MAX_ANGLES[(finger1, finger2)]
-        elif (finger2, finger1) in ADJACENT_FINGER_MAX_ANGLES:
-            max_angle = ADJACENT_FINGER_MAX_ANGLES[(finger2, finger1)]
-
-        if max_angle is None:
+        max_angle: float
+        if key == (FingerIndex.INDEX, FingerIndex.MIDDLE):
+            max_angle = self.config.hands.adjacent_fingers.index_middle_max_angle_degrees
+        elif key == (FingerIndex.MIDDLE, FingerIndex.RING):
+            max_angle = self.config.hands.adjacent_fingers.middle_ring_max_angle_degrees
+        elif key == (FingerIndex.RING, FingerIndex.PINKY):
+            max_angle = self.config.hands.adjacent_fingers.ring_pinky_max_angle_degrees
+        else:
             self._finger_touch_cache[key] = False
             self._finger_touch_cache[(finger2, finger1)] = False
             return False
@@ -386,11 +412,14 @@ class Hand(SmoothedBase):
 
     def _calc_all_fingers_touching(self) -> bool:
         """Check if all adjacent fingers are touching each other."""
-        for finger_pair in ADJACENT_FINGER_MAX_ANGLES:
-            finger1, finger2 = finger_pair
-            if not self.are_fingers_touching(finger1, finger2):
-                return False
-        return True
+        return all(
+            self.are_fingers_touching(finger1, finger2)
+            for finger1, finger2 in (
+                (FingerIndex.INDEX, FingerIndex.MIDDLE),
+                (FingerIndex.MIDDLE, FingerIndex.RING),
+                (FingerIndex.RING, FingerIndex.PINKY),
+            )
+        )
 
     all_fingers_touching = smoothed_bool(_calc_all_fingers_touching)
 
@@ -532,7 +561,7 @@ class Hand(SmoothedBase):
             The detected gesture or None if no custom gesture is detected
         """
 
-        thumb, index, middle, ring, pinky = self.fingers
+        thumb, index, middle, ring, pinky = self.thumb, self.index, self.middle, self.ring, self.pinky
 
         # Check all custom gestures
         for gesture in Gestures:
@@ -655,8 +684,9 @@ class Hand(SmoothedBase):
 class Palm(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = ("centroid",)
 
-    def __init__(self, hand: Hand) -> None:
+    def __init__(self, hand: Hand, config: Config) -> None:
         super().__init__()
+        self.config = config
         self.hand = hand
         self.landmarks: list[Landmark] = []
 

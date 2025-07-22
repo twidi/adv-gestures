@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import cv2  # type: ignore[import-untyped]
 
-from .models import Box, Finger, FingerIndex, Gestures, Hand, Hands, Palm
+from .models import Box, FingerIndex, Gestures, Hand, Hands, Palm
+from .models.fingers import AnyFinger, Thumb
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -162,7 +163,7 @@ def draw_palm_marks(palm: Palm, image: OpenCVImage) -> OpenCVImage:
     return image
 
 
-def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
+def draw_finger_marks(finger: AnyFinger, image: OpenCVImage) -> OpenCVImage:
     """Draw the finger on the image."""
     # Draw all landmarks
     for landmark in finger.landmarks:
@@ -247,7 +248,7 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
         )
 
     # Draw red circle if this finger touches the thumb
-    if finger.touches_thumb:
+    if not isinstance(finger, Thumb) and finger.touches_thumb:
         # Get thumb finger
         thumb = None
         for other_finger in finger.hand.fingers:

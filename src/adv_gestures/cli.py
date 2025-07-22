@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from pathlib import Path
 from typing import cast
 
 import cv2  # type: ignore[import-untyped]
@@ -14,8 +15,9 @@ import numpy as np
 import typer
 
 from .cameras import CameraInfo, list_cameras
+from .config import Config
 from .drawing import draw_hands_marks_and_info
-from .models import Hands
+from .models import Hands, Thumb
 from .recognizer import Recognizer, StreamInfo
 
 MIRROR_OUTPUT = True
@@ -155,7 +157,7 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             if finger.is_fully_bent:
                 status.append("bent")
 
-            if finger.touches_thumb:
+            if not isinstance(finger, Thumb) and finger.touches_thumb:
                 status.append("touches_thumb")
 
             if finger.touching_adjacent_fingers:
@@ -214,11 +216,12 @@ def init_camera_capture(
     return cap, window_name
 
 
-def run_gestures(camera_info: CameraInfo, show_preview: bool = True) -> None:
+def run_gestures(camera_info: CameraInfo, show_preview: bool = True, config_path: Path | None = None) -> None:
     """Show a live preview of the selected camera with gesture recognition."""
 
     # Initialize global hands instance
-    hands = Hands()
+    config = Config.load(config_path)
+    hands = Hands(config=config)
 
     cap, window_name = init_camera_capture(camera_info, show_preview)
     if cap is None:
@@ -327,8 +330,14 @@ def run(
     filter_name: str = typer.Argument(None, help="Optional camera name filter (case insensitive)"),
     preview: bool = typer.Option(False, "--preview", help="Show visual preview window"),
     check: bool = typer.Option(False, "--check", help="Only check camera without gesture recognition"),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help=f"Path to config file. Default: {Config.get_user_path()}"
+    ),
 ) -> None:
-    """List and preview cameras with optional gesture recognition."""
+    """List and preview cameras with optional gesture recognition.
+
+    The default config location is platform-specific and will be shown if the config file is not found.
+    """
     selected = pick_camera(filter_name)
 
     if selected:
@@ -336,7 +345,7 @@ def run(
         if check:
             check_camera(selected, show_preview=preview)
         else:
-            run_gestures(selected, show_preview=preview)
+            run_gestures(selected, show_preview=preview, config_path=config)
     else:
         print("\nNo camera selected.")
 

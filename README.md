@@ -36,17 +36,23 @@ make dev
 # Run with default camera 
 adv-gestures
 
+# Run with preview window
+adv-gestures --preview
+
+# Run with custom config file
+adv-gestures --config /path/to/config.json
+
 # The tool will prompt for camera selection if multiple cameras are available
 ```
 
 ### Library Usage
 ```python
 import cv2
-from adv_gestures import Recognizer, Hands, Gestures
+from adv_gestures import Recognizer, Hands, Gestures, Config
 
 # Initialize recognizer with model path using context manager
 with Recognizer("gesture_recognizer.task") as recognizer:
-    hands = Hands()
+    hands = Hands(config=Config())  # Use default config
     
     # Open camera
     cap = cv2.VideoCapture(0)
@@ -126,10 +132,16 @@ make pretty lint  # Format and lint code
 ```
 adv-gestures/
 ├── src/adv_gestures/
+│   ├── __init__.py      # Package initialization
+│   ├── cameras.py       # Camera enumeration and management
 │   ├── cli.py           # CLI application
+│   ├── config.py        # Configuration management
+│   ├── drawing.py       # Visualization and drawing utilities
+│   ├── mediapipe.py     # MediaPipe wrapper and utilities
 │   ├── recognizer.py    # Core recognition engine
 │   ├── smoothing.py     # Smoothing decorators
 │   └── models/          # Data models
+│       ├── __init__.py  # Models package initialization
 │       ├── hands.py     # Hand representation
 │       ├── fingers.py   # Finger tracking
 │       ├── gestures.py  # Gesture definitions

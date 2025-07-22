@@ -4,10 +4,11 @@ from __future__ import annotations
 from enum import IntEnum
 from functools import cached_property
 from math import sqrt
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar, cast
 
 import numpy as np
 
+from ..config import BaseFingerConfig, Config, FingerConfig, ThumbConfig
 from ..smoothing import (
     CoordSmoother,
     NumberSmoother,
@@ -37,49 +38,10 @@ class FingerIndex(IntEnum):
     PINKY = 4
 
 
-# Adjacent finger pairs with their maximum angle thresholds for touching detection
-# Each pair maps to a maximum angle in degrees
-ADJACENT_FINGER_MAX_ANGLES = {
-    (FingerIndex.INDEX, FingerIndex.MIDDLE): 3,
-    (FingerIndex.MIDDLE, FingerIndex.RING): 1.5,
-    (FingerIndex.RING, FingerIndex.PINKY): 2.0,
-}
-
-# Per-finger straightness configuration
-# Each finger can have custom thresholds and parameters
-FINGER_STRAIGHTNESS_CONFIG_DEFAULT = {
-    "straight_threshold": 0.85,
-    "nearly_straight_threshold": 0.65,
-    # Parameters for advanced straightness calculation
-    "distal_segments_max_ratio": 1.5,
-    "distal_segments_max_ratio_back": 1.5,
-    "max_angle_degrees": 10,
-    "segment_ratio_score_at_threshold": 0.7,
-    "segment_ratio_decay_rate": 2.0,
-    "segment_ratio_linear_range": 0.15,
-    "angle_score_linear_range": 0.15,
-    "angle_score_at_threshold": 0.85,
-    "angle_decay_rate": 20.0,
-    "angle_score_weight": 0.7,
-    "segment_ratio_weight": 0.3,
-}
-
-FINGER_STRAIGHTNESS_CONFIG = {
-    FingerIndex.THUMB: {
-        "straight_threshold": 0.90,
-        "nearly_straight_threshold": 0.70,
-        # Parameters for thumb's basic straightness calculation
-        "alignment_threshold": 0.01,
-        "max_deviation_for_zero_score": 0.1,
-    },
-    FingerIndex.INDEX: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
-    FingerIndex.MIDDLE: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
-    FingerIndex.RING: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
-    FingerIndex.PINKY: FINGER_STRAIGHTNESS_CONFIG_DEFAULT | {},
-}
+FingerConfigType = TypeVar("FingerConfigType", bound=BaseFingerConfig)
 
 
-class Finger(SmoothedBase):
+class Finger(SmoothedBase, Generic[FingerConfigType]):
     _cached_props: ClassVar[tuple[str, ...]] = (
         "centroid",
         "start_point",
@@ -95,9 +57,12 @@ class Finger(SmoothedBase):
         "touching_adjacent_fingers",
     )
 
-    def __init__(self, index: FingerIndex, hand: Hand):
+    index: ClassVar[FingerIndex]
+
+    def __init__(self, hand: Hand, config: Config):
         super().__init__()
-        self.index = index
+        self.config = config
+        self.finger_config: FingerConfigType = getattr(config.hands, self.index.name.lower())
         self.hand = hand
         self.landmarks: list[Landmark] = []
 
@@ -118,6 +83,10 @@ class Finger(SmoothedBase):
         """Check if the finger is visible and has landmarks."""
         return len(self.landmarks) > 0
 
+    def is_adjacent_to(self, other: FingerIndex | AnyFinger) -> bool:
+        other_index = other.index if isinstance(other, Finger) else other
+        return abs(self.index - other_index) == 1
+
     def _calc_centroid(self) -> tuple[float, float]:
         """Calculate the centroid of all finger landmarks."""
         if not self.landmarks:
@@ -131,166 +100,9 @@ class Finger(SmoothedBase):
     centroid = SmoothedProperty(_calc_centroid, CoordSmoother)
 
     def _calc_straightness_score(self) -> float:
-        """Calculate a straightness score from 0 to 1, where 1 is perfectly straight and 0 is not straight."""
-        # Get configuration for this finger
-        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
-
-        # Configuration constants from per-finger config
-        distal_segments_max_ratio = config.get("distal_segments_max_ratio", 1.5)
-        distal_segments_max_ratio_back = config.get("distal_segments_max_ratio_back", 1.5)
-        max_angle_degrees = config.get("max_angle_degrees", 15)
-
-        # Segment ratio scoring parameters
-        segment_ratio_score_at_threshold = config.get("segment_ratio_score_at_threshold", 0.7)
-        segment_ratio_decay_rate = config.get("segment_ratio_decay_rate", 2.0)
-        segment_ratio_linear_range = config.get("segment_ratio_linear_range", 0.15)
-
-        # Angle scoring parameters
-        angle_score_linear_range = config.get("angle_score_linear_range", 0.15)
-        angle_score_at_threshold = config.get("angle_score_at_threshold", 0.85)
-        angle_decay_rate = config.get("angle_decay_rate", 20.0)
-
-        # Score combination weights
-        angle_score_weight = config.get("angle_score_weight", 0.7)
-        segment_ratio_weight = config.get("segment_ratio_weight", 0.3)
-
-        # Numerical thresholds
-        min_magnitude_threshold = 0.001  # Minimum vector magnitude to avoid division by zero
-
-        if not self.hand.is_facing_camera:
-            distal_segments_max_ratio = distal_segments_max_ratio_back
-
-        if len(self.landmarks) < 3:  # Need at least 3 points to check alignment
-            return 0.0
-
-        # Skip thumb - will be handled separately later
-        if self.index == FingerIndex.THUMB:
-            return self._straightness_score_basic()
-
-        # Extract x and y coordinates for all finger landmarks
-        x_coords = [landmark.x for landmark in self.landmarks]
-        y_coords = [landmark.y for landmark in self.landmarks]
-
-        # Calculate segment lengths
-        segment_lengths = []
-        for i in range(len(self.landmarks) - 1):
-            dx = x_coords[i + 1] - x_coords[i]
-            dy = y_coords[i + 1] - y_coords[i]
-            segment_length = np.sqrt(dx**2 + dy**2)
-            segment_lengths.append(segment_length)
-
-        # For fingers (not thumb), expect 3 segments: MCP-PIP, PIP-DIP, DIP-TIP
-        # The MCP-PIP segment is naturally longer, so check proportional consistency
-        segment_ratio_score = 1.0
-        if len(segment_lengths) == 3:
-            mcp_pip, pip_dip, dip_tip = segment_lengths  # proximal, middle, distal segments
-
-            # Check if the distal segments (PIP-DIP and DIP-TIP) are reasonably similar
-            if pip_dip > 0 and dip_tip > 0:
-                ratio = max(pip_dip, dip_tip) / min(pip_dip, dip_tip)
-                if ratio > distal_segments_max_ratio:
-                    # Convert ratio to score: at threshold = segment_ratio_score_at_threshold, higher ratios decay
-                    excess_ratio = ratio - distal_segments_max_ratio
-                    # Use exponential decay for excessive ratios
-                    segment_ratio_score = segment_ratio_score_at_threshold * np.exp(
-                        -excess_ratio * segment_ratio_decay_rate
-                    )
-                else:
-                    # Linear interpolation from 1.0 (ratio=1) to (1.0 - segment_ratio_linear_range) at threshold
-                    segment_ratio_score = (
-                        1.0 - ((ratio - 1.0) / (distal_segments_max_ratio - 1.0)) * segment_ratio_linear_range
-                    )
-
-        # Verify segment angles are relatively straight
-        # Calculate angles between consecutive segments
-        max_found_angle = 0.0
-        if len(segment_lengths) >= 2:
-            for i in range(len(segment_lengths) - 1):
-                # Get vectors for consecutive segments
-                p1 = (x_coords[i], y_coords[i])
-                p2 = (x_coords[i + 1], y_coords[i + 1])
-                p3 = (x_coords[i + 2], y_coords[i + 2])
-
-                # Vector from p1 to p2
-                v1 = (p2[0] - p1[0], p2[1] - p1[1])
-                # Vector from p2 to p3
-                v2 = (p3[0] - p2[0], p3[1] - p2[1])
-
-                # Calculate angle between vectors using dot product
-                dot_product = v1[0] * v2[0] + v1[1] * v2[1]
-                mag1 = np.sqrt(v1[0] ** 2 + v1[1] ** 2)
-                mag2 = np.sqrt(v2[0] ** 2 + v2[1] ** 2)
-
-                if mag1 > min_magnitude_threshold and mag2 > min_magnitude_threshold:  # Avoid division by zero
-                    cos_angle = dot_product / (mag1 * mag2)
-                    # Clamp to [-1, 1] to handle numerical errors
-                    cos_angle = max(-1, min(1, cos_angle))
-                    angle = np.arccos(cos_angle)
-
-                    # Convert to degrees for easier interpretation
-                    angle_degrees = np.degrees(angle)
-                    max_found_angle = max(max_found_angle, angle_degrees)
-
-        # Convert angle to score: 0° = 1.0, max_angle_degrees = angle_score_at_threshold, higher angles decay to 0
-        if max_found_angle <= max_angle_degrees:
-            # Perfect to acceptable range: linear from 1.0 to angle_score_at_threshold
-            angle_score = 1.0 - (max_found_angle / max_angle_degrees) * angle_score_linear_range
-        else:
-            # Beyond threshold: exponential decay from angle_score_at_threshold to 0
-            excess_angle = max_found_angle - max_angle_degrees
-            # Use exponential decay: score decreases rapidly after threshold
-            angle_score = angle_score_at_threshold * np.exp(-excess_angle / angle_decay_rate)
-
-        # Combine both scores (weighted average: angle is more important)
-        combined_score = angle_score_weight * angle_score + segment_ratio_weight * segment_ratio_score
-
-        return float(combined_score)
+        raise NotImplementedError
 
     straightness_score = smoothed_float(_calc_straightness_score)
-
-    def _straightness_score_basic(self) -> float:
-        """Basic straightness score calculation for thumb or fallback."""
-        # Get configuration for this finger
-        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
-
-        # Configuration constants from per-finger config
-        alignment_threshold = config.get("alignment_threshold", 0.01)
-        max_deviation_for_zero_score = config.get("max_deviation_for_zero_score", 0.1)
-        min_denominator_threshold = 0.001  # Minimum line length to avoid division by zero
-
-        if len(self.landmarks) < 3:
-            return 0.0
-
-        x_coords = [landmark.x for landmark in self.landmarks]
-        y_coords = [landmark.y for landmark in self.landmarks]
-
-        # Calculate the line from first to last point
-        x1, y1 = x_coords[0], y_coords[0]
-        x2, y2 = x_coords[-1], y_coords[-1]
-
-        # Check intermediate points alignment
-        max_deviation = 0.0
-        for i in range(1, len(self.landmarks) - 1):
-            x, y = x_coords[i], y_coords[i]
-
-            # Calculate perpendicular distance from point to line
-            # Using formula: |ax + by + c| / sqrt(a^2 + b^2)
-            # where line is: (y2-y1)x - (x2-x1)y + x2*y1 - y2*x1 = 0
-            numerator = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1)
-            denominator = np.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
-
-            if denominator > min_denominator_threshold:  # Avoid division by zero
-                distance = numerator / denominator
-                max_deviation = max(max_deviation, distance)
-
-        # Convert deviation to score
-        if max_deviation <= alignment_threshold:
-            score = 1.0
-        else:
-            # Linear decay from 1.0 to 0 as deviation increases
-            score = max(0.0, 1.0 - (max_deviation / max_deviation_for_zero_score))
-
-        return float(score)
 
     def _calc_is_straight(self) -> bool:
         """Check if the finger is straight based on the straightness score."""
@@ -309,8 +121,7 @@ class Finger(SmoothedBase):
             return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         # Use the straightness score with strict threshold from finger config
-        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
-        return self.straightness_score >= config.get("straight_threshold", FINGER_STRAIGHT_THRESHOLD)
+        return self.straightness_score >= self.finger_config.straightness.straight_threshold
 
     is_straight = smoothed_bool(_calc_is_straight)
 
@@ -333,9 +144,8 @@ class Finger(SmoothedBase):
                 return False
 
         # Use the straightness score with relaxed threshold from finger config
-        config = FINGER_STRAIGHTNESS_CONFIG[self.index]
-        nearly_threshold = config.get("nearly_straight_threshold", FINGER_NEARLY_STRAIGHT_THRESHOLD)
-        straight_threshold = config.get("straight_threshold", FINGER_STRAIGHT_THRESHOLD)
+        nearly_threshold = self.finger_config.straightness.nearly_straight_threshold
+        straight_threshold = self.finger_config.straightness.straight_threshold
         return nearly_threshold <= self.straightness_score < straight_threshold
 
     is_nearly_straight = smoothed_bool(_calc_is_nearly_straight)
@@ -348,36 +158,6 @@ class Finger(SmoothedBase):
     @property
     def is_not_straight_at_all(self) -> bool:
         return not (self.is_straight or self.is_nearly_straight)
-
-    def _is_straight_basic(self) -> bool:
-        """Basic straightness check for thumb or fallback."""
-        alignment_threshold = 0.01
-
-        if len(self.landmarks) < 3:
-            return False
-
-        x_coords = [landmark.x for landmark in self.landmarks]
-        y_coords = [landmark.y for landmark in self.landmarks]
-
-        x1, y1 = x_coords[0], y_coords[0]
-        x2, y2 = x_coords[-1], y_coords[-1]
-
-        finger_length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-        if finger_length < 0.05:
-            return False
-
-        # Check alignment only
-        distances = []
-        for i in range(1, len(self.landmarks) - 1):
-            x, y = x_coords[i], y_coords[i]
-            if x2 != x1 or y2 != y1:
-                dist = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1) / np.sqrt(
-                    (y2 - y1) ** 2 + (x2 - x1) ** 2
-                )
-                distances.append(dist)
-
-        max_distance = max(distances) if distances else 0
-        return max_distance < alignment_threshold
 
     def _calc_start_point(self) -> tuple[int, int] | None:
         """Get the start point of the finger (base)."""
@@ -510,25 +290,227 @@ class Finger(SmoothedBase):
         if self.fold_angle is None:
             return True
 
-        return self.fold_angle < (150 if self.index == FingerIndex.THUMB else 60.0)
+        return self.fold_angle >= self.finger_config.fully_bent_max_angle_degrees
 
     is_fully_bent = smoothed_bool(_calc_is_fully_bent)
 
+    @cached_property
+    def touching_adjacent_fingers(self) -> list[FingerIndex]:
+        raise NotImplementedError
+
+    def is_touching(self, other: FingerIndex | AnyFinger) -> bool:
+        """Check if this finger is touching another finger."""
+        other_index = other.index if isinstance(other, Finger) else other
+
+        if self.index == other_index:
+            return True  # A finger is always touching itself
+
+        # Special case: checking if a finger touches the thumb
+        if self.index == FingerIndex.THUMB:
+            # Get the other finger and check its touches_thumb property
+            other_finger = cast(OtherFinger, self.hand.fingers[other_index])
+            return other_finger.touches_thumb
+
+        if other_index == FingerIndex.THUMB:
+            # This finger checking if it touches thumb
+            return cast(OtherFinger, self).touches_thumb
+
+        # For non-thumb combinations, use smoothed properties
+        # Order fingers to avoid duplicates (always use lower index first)
+        finger1, finger2 = sorted((self.index, other_index))
+
+        if finger1 == FingerIndex.INDEX:
+            if finger2 == FingerIndex.MIDDLE:
+                return self.hand.index_middle_touching
+            if finger2 == FingerIndex.RING:
+                return self.hand.index_ring_touching
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.index_pinky_touching
+
+        if finger1 == FingerIndex.MIDDLE:
+            if finger2 == FingerIndex.RING:
+                return self.hand.middle_ring_touching
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.middle_pinky_touching
+
+        if finger1 == FingerIndex.RING:
+            if finger2 == FingerIndex.PINKY:
+                return self.hand.ring_pinky_touching
+
+        # Should never reach here if all combinations are covered
+        return False
+
+
+class Thumb(Finger[ThumbConfig]):
+    index = FingerIndex.THUMB
+
+    def _calc_straightness_score(self) -> float:
+        """Basic straightness score calculation for thumb."""
+        # Configuration constants from per-finger config
+        alignment_threshold = self.finger_config.straightness.alignment_threshold
+        max_deviation_for_zero_score = self.finger_config.straightness.max_deviation_for_zero_score
+        min_denominator_threshold = 0.001  # Minimum line length to avoid division by zero
+
+        if len(self.landmarks) < 3:
+            return 0.0
+
+        x_coords = [landmark.x for landmark in self.landmarks]
+        y_coords = [landmark.y for landmark in self.landmarks]
+
+        # Calculate the line from first to last point
+        x1, y1 = x_coords[0], y_coords[0]
+        x2, y2 = x_coords[-1], y_coords[-1]
+
+        # Check intermediate points alignment
+        max_deviation = 0.0
+        for i in range(1, len(self.landmarks) - 1):
+            x, y = x_coords[i], y_coords[i]
+
+            # Calculate perpendicular distance from point to line
+            # Using formula: |ax + by + c| / sqrt(a^2 + b^2)
+            # where line is: (y2-y1)x - (x2-x1)y + x2*y1 - y2*x1 = 0
+            numerator = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1)
+            denominator = np.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
+
+            if denominator > min_denominator_threshold:  # Avoid division by zero
+                distance = numerator / denominator
+                max_deviation = max(max_deviation, distance)
+
+        # Convert deviation to score
+        if max_deviation <= alignment_threshold:
+            score = 1.0
+        else:
+            # Linear decay from 1.0 to 0 as deviation increases
+            score = max(0.0, 1.0 - (max_deviation / max_deviation_for_zero_score))
+
+        return float(score)
+
+    straightness_score = smoothed_float(_calc_straightness_score)
+
+    @cached_property
+    def touching_adjacent_fingers(self) -> list[FingerIndex]:
+        """Get list of adjacent fingers that this finger is touching."""
+        return [FingerIndex.INDEX] if self.hand.index.touches_thumb else []
+
+
+class OtherFinger(Finger[FingerConfig]):
+    def _calc_straightness_score(self) -> float:
+        """Calculate a straightness score from 0 to 1, where 1 is perfectly straight and 0 is not straight."""
+
+        # Configuration constants from per-finger config
+        distal_segments_max_ratio = self.finger_config.straightness.distal_segments_max_ratio
+        distal_segments_max_ratio_back = self.finger_config.straightness.distal_segments_max_ratio_back
+        max_angle_degrees = self.finger_config.straightness.max_angle_degrees
+
+        # Segment ratio scoring parameters
+        segment_ratio_score_at_threshold = self.finger_config.straightness.segment_ratio_score_at_threshold
+        segment_ratio_decay_rate = self.finger_config.straightness.segment_ratio_decay_rate
+        segment_ratio_linear_range = self.finger_config.straightness.segment_ratio_linear_range
+
+        # Angle scoring parameters
+        angle_score_linear_range = self.finger_config.straightness.angle_score_linear_range
+        angle_score_at_threshold = self.finger_config.straightness.angle_score_at_threshold
+        angle_decay_rate = self.finger_config.straightness.angle_decay_rate
+
+        # Score combination weights
+        angle_score_weight = self.finger_config.straightness.angle_score_weight
+        segment_ratio_weight = self.finger_config.straightness.segment_ratio_weight
+
+        # Numerical thresholds
+        min_magnitude_threshold = 0.001  # Minimum vector magnitude to avoid division by zero
+
+        if not self.hand.is_facing_camera:
+            distal_segments_max_ratio = distal_segments_max_ratio_back
+
+        if len(self.landmarks) < 3:  # Need at least 3 points to check alignment
+            return 0.0
+
+        # Extract x and y coordinates for all finger landmarks
+        x_coords = [landmark.x for landmark in self.landmarks]
+        y_coords = [landmark.y for landmark in self.landmarks]
+
+        # Calculate segment lengths
+        segment_lengths = []
+        for i in range(len(self.landmarks) - 1):
+            dx = x_coords[i + 1] - x_coords[i]
+            dy = y_coords[i + 1] - y_coords[i]
+            segment_length = np.sqrt(dx**2 + dy**2)
+            segment_lengths.append(segment_length)
+
+        # For fingers (not thumb), expect 3 segments: MCP-PIP, PIP-DIP, DIP-TIP
+        # The MCP-PIP segment is naturally longer, so check proportional consistency
+        segment_ratio_score = 1.0
+        if len(segment_lengths) == 3:
+            mcp_pip, pip_dip, dip_tip = segment_lengths  # proximal, middle, distal segments
+
+            # Check if the distal segments (PIP-DIP and DIP-TIP) are reasonably similar
+            if pip_dip > 0 and dip_tip > 0:
+                ratio = max(pip_dip, dip_tip) / min(pip_dip, dip_tip)
+                if ratio > distal_segments_max_ratio:
+                    # Convert ratio to score: at threshold = segment_ratio_score_at_threshold, higher ratios decay
+                    excess_ratio = ratio - distal_segments_max_ratio
+                    # Use exponential decay for excessive ratios
+                    segment_ratio_score = segment_ratio_score_at_threshold * np.exp(
+                        -excess_ratio * segment_ratio_decay_rate
+                    )
+                else:
+                    # Linear interpolation from 1.0 (ratio=1) to (1.0 - segment_ratio_linear_range) at threshold
+                    segment_ratio_score = (
+                        1.0 - ((ratio - 1.0) / (distal_segments_max_ratio - 1.0)) * segment_ratio_linear_range
+                    )
+
+        # Verify segment angles are relatively straight
+        # Calculate angles between consecutive segments
+        max_found_angle = 0.0
+        if len(segment_lengths) >= 2:
+            for i in range(len(segment_lengths) - 1):
+                # Get vectors for consecutive segments
+                p1 = (x_coords[i], y_coords[i])
+                p2 = (x_coords[i + 1], y_coords[i + 1])
+                p3 = (x_coords[i + 2], y_coords[i + 2])
+
+                # Vector from p1 to p2
+                v1 = (p2[0] - p1[0], p2[1] - p1[1])
+                # Vector from p2 to p3
+                v2 = (p3[0] - p2[0], p3[1] - p2[1])
+
+                # Calculate angle between vectors using dot product
+                dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+                mag1 = np.sqrt(v1[0] ** 2 + v1[1] ** 2)
+                mag2 = np.sqrt(v2[0] ** 2 + v2[1] ** 2)
+
+                if mag1 > min_magnitude_threshold and mag2 > min_magnitude_threshold:  # Avoid division by zero
+                    cos_angle = dot_product / (mag1 * mag2)
+                    # Clamp to [-1, 1] to handle numerical errors
+                    cos_angle = max(-1, min(1, cos_angle))
+                    angle = np.arccos(cos_angle)
+
+                    # Convert to degrees for easier interpretation
+                    angle_degrees = np.degrees(angle)
+                    max_found_angle = max(max_found_angle, angle_degrees)
+
+        # Convert angle to score: 0° = 1.0, max_angle_degrees = angle_score_at_threshold, higher angles decay to 0
+        if max_found_angle <= max_angle_degrees:
+            # Perfect to acceptable range: linear from 1.0 to angle_score_at_threshold
+            angle_score = 1.0 - (max_found_angle / max_angle_degrees) * angle_score_linear_range
+        else:
+            # Beyond threshold: exponential decay from angle_score_at_threshold to 0
+            excess_angle = max_found_angle - max_angle_degrees
+            # Use exponential decay: score decreases rapidly after threshold
+            angle_score = angle_score_at_threshold * np.exp(-excess_angle / angle_decay_rate)
+
+        # Combine both scores (weighted average: angle is more important)
+        combined_score = angle_score_weight * angle_score + segment_ratio_weight * segment_ratio_score
+
+        return float(combined_score)
+
+    straightness_score = smoothed_float(_calc_straightness_score)
+
     def _calc_touches_thumb(self) -> bool:
         """Check if this finger tip touches the thumb tip of the same hand."""
-        # Skip if this finger is the thumb itself
-        if self.index == FingerIndex.THUMB:
-            return False
 
-        # if self.is_fully_bent:
-        #     return False
-        #
         # Get the thumb finger
-        thumb = None
-        for finger in self.hand.fingers:
-            if finger.index == FingerIndex.THUMB:
-                thumb = finger
-                break
+        thumb = self.hand.thumb
 
         if not thumb or not thumb.landmarks or not self.landmarks:
             return False
@@ -555,7 +537,7 @@ class Finger(SmoothedBase):
             hand_scale = sqrt(segment_dx**2 + segment_dy**2)
 
         # Touch threshold relative to hand scale
-        relative_threshold = 1.2 * hand_scale
+        relative_threshold = self.finger_config.thumb_distance_relative_threshold * hand_scale
 
         return distance < relative_threshold
 
@@ -563,15 +545,7 @@ class Finger(SmoothedBase):
 
     @cached_property
     def touching_adjacent_fingers(self) -> list[FingerIndex]:
-        """Get list of adjacent fingers that this finger is touching.
-        Returns empty list for thumb, up to 1 for index/pinky, up to 2 for middle/ring."""
-        # Thumb never touches other fingers in this context
-        if self.index == FingerIndex.THUMB:
-            return []
-
-        # Need reference to hand
-        if not self.hand:
-            return []
+        """Get list of adjacent fingers that this finger is touching."""
 
         touching = []
 
@@ -602,44 +576,30 @@ class Finger(SmoothedBase):
 
         return touching
 
-    def is_touching(self, other: FingerIndex | Finger) -> bool:
-        """Check if this finger is touching another finger."""
-        other_index = other.index if isinstance(other, Finger) else other
 
-        if self.index == other_index:
-            return True  # A finger is always touching itself
+class IndexFinger(OtherFinger):
+    index = FingerIndex.INDEX
 
-        # Special case: checking if a finger touches the thumb
-        if self.index == FingerIndex.THUMB and other_index != FingerIndex.THUMB:
-            # Get the other finger and check its touches_thumb property
-            other_finger = self.hand.fingers[other_index]
-            return other_finger.touches_thumb
 
-        if self.index != FingerIndex.THUMB and other_index == FingerIndex.THUMB:
-            # This finger checking if it touches thumb
-            return self.touches_thumb
+class MiddleFinger(OtherFinger):
+    index = FingerIndex.MIDDLE
 
-        # For non-thumb combinations, use smoothed properties
-        # Order fingers to avoid duplicates (always use lower index first)
-        finger1, finger2 = sorted((self.index, other_index))
 
-        if finger1 == FingerIndex.INDEX:
-            if finger2 == FingerIndex.MIDDLE:
-                return self.hand.index_middle_touching
-            if finger2 == FingerIndex.RING:
-                return self.hand.index_ring_touching
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.index_pinky_touching
+class RingFinger(OtherFinger):
+    index = FingerIndex.RING
 
-        if finger1 == FingerIndex.MIDDLE:
-            if finger2 == FingerIndex.RING:
-                return self.hand.middle_ring_touching
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.middle_pinky_touching
 
-        if finger1 == FingerIndex.RING:
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.ring_pinky_touching
+class PinkyFinger(OtherFinger):
+    index = FingerIndex.PINKY
 
-        # Should never reach here if all combinations are covered
-        return False
+
+FINGER_CLASS: dict[FingerIndex, type[Finger[Any]]] = {
+    FingerIndex.THUMB: Thumb,
+    FingerIndex.INDEX: IndexFinger,
+    FingerIndex.MIDDLE: MiddleFinger,
+    FingerIndex.RING: RingFinger,
+    FingerIndex.PINKY: PinkyFinger,
+}
+
+
+AnyFinger: TypeAlias = Thumb | IndexFinger | MiddleFinger | RingFinger | PinkyFinger

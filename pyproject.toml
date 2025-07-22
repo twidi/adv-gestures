@@ -29,6 +29,8 @@ dependencies = [
     "opencv-python>=4.8.0",
     "mediapipe>=0.10.0",
     "numpy>=1.24.0",
+    "platformdirs>=4.3.8",
+    "pydantic>=2.11.7",
     "typing-extensions>=4.8.0",
 ]
 
@@ -67,6 +69,7 @@ lint.select = [
     "C4", # flake8-comprehensions
     "UP", # pyupgrade
 ]
+lint.per-file-ignores = {"src/adv_gestures/cli.py" = ["B008"]}
 
 [tool.mypy]
 python_version = "3.11"

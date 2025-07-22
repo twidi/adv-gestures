@@ -10,7 +10,6 @@ from typing import ClassVar, NamedTuple, TypeAlias, TypeVar
 
 import cv2
 
-from . import Hands
 from .mediapipe import (
     BaseOptions,
     Category,
@@ -20,6 +19,7 @@ from .mediapipe import (
     RunningMode,
     mp,
 )
+from .models import Hands
 from .models.landmarks import Landmark
 
 OpenCVImage: TypeAlias = cv2.typing.MatLike  # Type alias for images (numpy arrays)

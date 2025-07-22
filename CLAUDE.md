@@ -47,6 +47,12 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Camera selection and preview
    - Real-time visualization with metrics
    - Debug drawing overlays
+   - Config file support via `--config` option
+
+5. **Configuration** (`src/adv_gestures/config.py`): Pydantic-based configuration
+   - JSON-based configuration files
+   - Default config location: user config directory via platformdirs
+   - Nested configuration for hands, fingers, and gesture detection thresholds
 
 ### Key Patterns
 
