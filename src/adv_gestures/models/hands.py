@@ -6,9 +6,6 @@ from time import time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
 import numpy as np
-from mediapipe.tasks.python.components.containers import (  # type: ignore[import-untyped]
-    NormalizedLandmark,
-)
 
 from ..smoothing import (
     BoxSmoother,
@@ -20,7 +17,7 @@ from ..smoothing import (
 )
 from .fingers import ADJACENT_FINGER_MAX_ANGLES, Finger, FingerIndex
 from .gestures import OVERRIDABLE_DEFAULT_GESTURES, Gestures
-from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark
+from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 
 if TYPE_CHECKING:
     from ..recognizer import Recognizer
@@ -43,21 +40,12 @@ class Handedness(str, Enum):
 
 
 class Box(NamedTuple):
-    """Represents a bounding box in normalized coordinates."""
+    """Represents a bounding box."""
 
     min_x: float
     min_y: float
     max_x: float
     max_y: float
-
-    def to_pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
-        """Convert normalized coordinates to pixel coordinates."""
-        return (
-            int(self.min_x * width),
-            int(self.min_y * height),
-            int(self.max_x * width),
-            int(self.max_y * height),
-        )
 
 
 class Hands:
@@ -72,7 +60,7 @@ class Hands:
         self.left.reset()
         self.right.reset()
 
-    def update_hands(self, recognizer: Recognizer) -> None:
+    def update_hands(self, recognizer: Recognizer, width: int, height: int) -> None:
         """Update the hands object with new gesture recognition results."""
 
         # If the recognizer didn't run yet, do nothing
@@ -85,11 +73,11 @@ class Hands:
         if not result.hand_landmarks:
             return
 
-        for i, hand_landmarks in enumerate(result.hand_landmarks):
+        for hand_index, hand_landmarks in enumerate(result.hand_landmarks):
             # Get handedness
             handedness = None
-            if result.handedness and i < len(result.handedness) and result.handedness[i]:
-                handedness = Handedness.from_data(result.handedness[i][0].category_name)
+            if result.handedness and hand_index < len(result.handedness) and result.handedness[hand_index]:
+                handedness = Handedness.from_data(result.handedness[hand_index][0].category_name)
 
             # Skip if handedness not detected
             if not handedness:
@@ -100,8 +88,8 @@ class Hands:
 
             # Get default gesture information
             gesture_type = None
-            if result.gestures and i < len(result.gestures) and result.gestures[i]:
-                gesture = result.gestures[i][0]  # Get the top gesture
+            if result.gestures and hand_index < len(result.gestures) and result.gestures[hand_index]:
+                gesture = result.gestures[hand_index][0]  # Get the top gesture
                 gesture_type = (
                     None if gesture.category_name in (None, "None", "Unknown") else Gestures(gesture.category_name)
                 )
@@ -111,7 +99,7 @@ class Hands:
                 is_visible=True,
                 wrist_landmark=hand_landmarks[HandLandmark.WRIST],
                 default_gesture=gesture_type,
-                all_landmarks=list(hand_landmarks),
+                all_landmarks=hand_landmarks,
             )
 
             # Update palm
@@ -153,11 +141,11 @@ class Hand(SmoothedBase):
         self.is_visible: bool = False
         self.palm: Palm = Palm(hand=self)
         self.fingers: list[Finger] = [Finger(index=FingerIndex(finger_idx), hand=self) for finger_idx in FingerIndex]
-        self.wrist_landmark: NormalizedLandmark | None = None
+        self.wrist_landmark: Landmark | None = None
         self._raw_default_gesture: Gestures | None = None
         self._raw_custom_gesture: Gestures | None = None
         self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
-        self.all_landmarks: list[NormalizedLandmark] = []
+        self.all_landmarks: list[Landmark] = []
         self._default_gesture_start_time: float | None = None
         self._custom_gesture_start_time: float | None = None
         self._gesture_start_time: float | None = None
@@ -190,9 +178,9 @@ class Hand(SmoothedBase):
     def update(
         self,
         is_visible: bool,
-        wrist_landmark: NormalizedLandmark | None,
+        wrist_landmark: Landmark | None,
         default_gesture: Gestures | None,
-        all_landmarks: list[NormalizedLandmark] | None = None,
+        all_landmarks: list[Landmark] | None = None,
     ) -> None:
         """Update the hand with new data from MediaPipe.
 
@@ -226,11 +214,27 @@ class Hand(SmoothedBase):
         # Create vectors from wrist to thumb MCP and wrist to pinky MCP
         # Note: MediaPipe uses normalized coordinates where x,y are in [0,1] and z represents depth
         vec1 = np.array(
-            [thumb_mcp.x - wrist.x, thumb_mcp.y - wrist.y, thumb_mcp.z - wrist.z if hasattr(thumb_mcp, "z") else 0]
+            [
+                thumb_mcp.x - wrist.x,
+                thumb_mcp.y - wrist.y,
+                (
+                    (thumb_mcp.z_normalized - wrist.z_normalized)
+                    if thumb_mcp.z_normalized is not None and wrist.z_normalized is not None
+                    else 0
+                ),
+            ]
         )
 
         vec2 = np.array(
-            [pinky_mcp.x - wrist.x, pinky_mcp.y - wrist.y, pinky_mcp.z - wrist.z if hasattr(pinky_mcp, "z") else 0]
+            [
+                pinky_mcp.x - wrist.x,
+                pinky_mcp.y - wrist.y,
+                (
+                    (pinky_mcp.z_normalized - wrist.z_normalized)
+                    if pinky_mcp.z_normalized is not None and wrist.z_normalized is not None
+                    else 0
+                ),
+            ]
         )
 
         # Calculate cross product to get normal vector
@@ -428,8 +432,7 @@ class Hand(SmoothedBase):
     middle_pinky_touching = smoothed_bool(_calc_middle_pinky_touching)
 
     def _calc_bounding_box(self) -> Box | None:
-        """Calculate the bounding box of the hand.
-        Returns a Box in normalized coordinates."""
+        """Calculate the bounding box of the hand."""
         if not self.all_landmarks:
             return None
 
@@ -442,7 +445,7 @@ class Hand(SmoothedBase):
 
     def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.
-        Returns a Box in normalized coordinates, or None if not pinching."""
+        Returns None if not pinching."""
         if self.gesture not in (Gestures.PINCH, Gestures.PINCH_TOUCH):
             return None
 
@@ -453,19 +456,11 @@ class Hand(SmoothedBase):
         if not thumb_tip or not index_tip:
             return None
 
-        # Calculate bounding box with some padding
-        padding = 0.02  # 2% padding in normalized coordinates
-
-        min_x = min(thumb_tip[0], index_tip[0]) - padding
-        max_x = max(thumb_tip[0], index_tip[0]) + padding
-        min_y = min(thumb_tip[1], index_tip[1]) - padding
-        max_y = max(thumb_tip[1], index_tip[1]) + padding
-
-        # Clamp to valid range [0, 1]
-        min_x = max(0, min_x)
-        max_x = min(1, max_x)
-        min_y = max(0, min_y)
-        max_y = min(1, max_y)
+        # Calculate bounding box
+        min_x = min(thumb_tip[0], index_tip[0])
+        max_x = max(thumb_tip[0], index_tip[0])
+        min_y = min(thumb_tip[1], index_tip[1])
+        max_y = max(thumb_tip[1], index_tip[1])
 
         return Box(min_x, min_y, max_x, max_y)
 
@@ -627,7 +622,7 @@ class Hand(SmoothedBase):
                     and not middle.is_straight
                     and not ring.is_straight
                     and not pinky.is_straight
-                    and not index.is_fully_bent
+                    # and not index.is_fully_bent
                 ):
                     return Gestures.PINCH_TOUCH if index.touches_thumb else Gestures.PINCH
 
@@ -663,7 +658,7 @@ class Palm(SmoothedBase):
     def __init__(self, hand: Hand) -> None:
         super().__init__()
         self.hand = hand
-        self.landmarks: list[NormalizedLandmark] = []
+        self.landmarks: list[Landmark] = []
 
     def reset(self) -> None:
         """Reset the palm and clear all cached properties."""
@@ -674,7 +669,7 @@ class Palm(SmoothedBase):
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
 
-    def update(self, landmarks: list[NormalizedLandmark]) -> None:
+    def update(self, landmarks: list[Landmark]) -> None:
         """Update the palm with new landmarks."""
         self.landmarks = landmarks
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import ClassVar, TypeAlias
+from typing import ClassVar, NamedTuple, TypeAlias
+
+from ..mediapipe import NormalizedLandmark
 
 
 class HandLandmark(IntEnum):
@@ -82,3 +84,41 @@ FINGERS_LANDMARKS = [
     LandmarkGroups.RING,
     LandmarkGroups.PINKY,
 ]
+
+
+class Landmark(NamedTuple):
+    """A landmark with pixel coordinates.
+
+    Attributes:
+        x: X coordinate in pixels (0 to width) as integer
+        y: Y coordinate in pixels (0 to height) as integer
+        x_normalized: Original MediaPipe X coordinate (0 to 1)
+        y_normalized: Original MediaPipe Y coordinate (0 to 1)
+        z_normalized: Original MediaPipe Z coordinate (depth relative to wrist)
+    """
+
+    x: int
+    y: int
+    x_normalized: float
+    y_normalized: float
+    z_normalized: float | None
+
+    @classmethod
+    def from_normalized(cls, mp_landmark: NormalizedLandmark, width: int, height: int) -> Landmark:
+        """Create a Landmark from MediaPipe's NormalizedLandmark.
+
+        Args:
+            mp_landmark: MediaPipe landmark with normalized coordinates
+            width: Image width in pixels
+            height: Image height in pixels
+
+        Returns:
+            Landmark with pixel coordinates
+        """
+        return cls(
+            x=int(round(mp_landmark.x * width)),
+            y=int(round(mp_landmark.y * height)),
+            x_normalized=mp_landmark.x,
+            y_normalized=mp_landmark.y,
+            z_normalized=getattr(mp_landmark, "z", None),
+        )

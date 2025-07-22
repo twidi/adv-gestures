@@ -9,22 +9,28 @@ from dataclasses import dataclass
 from typing import ClassVar, NamedTuple, TypeAlias, TypeVar
 
 import cv2
-import mediapipe as mp  # type: ignore[import-untyped]
-from mediapipe.tasks.python import BaseOptions  # type: ignore[import-untyped]
-from mediapipe.tasks.python.vision import (  # type: ignore[import-untyped]
+
+from . import Hands
+from .mediapipe import (
+    BaseOptions,
+    Category,
     GestureRecognizer,
     GestureRecognizerOptions,
     GestureRecognizerResult,
     RunningMode,
+    mp,
 )
-
-from . import Hands
+from .models.landmarks import Landmark
 
 OpenCVImage: TypeAlias = cv2.typing.MatLike  # Type alias for images (numpy arrays)
 
 
 @dataclass
-class RecognizerResult(GestureRecognizerResult):
+class RecognizerResult:
+    gestures: list[list[Category]]
+    handedness: list[list[Category]]
+    hand_landmarks: list[list[Landmark]]
+
     timestamp: float  # Timestamp of the result
     recognized_image: mp.Image | None = None  # The image that was recognized
 
@@ -71,18 +77,25 @@ class Recognizer:
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-    def recognize_image_from_opencv(self, frame: OpenCVImage, timestamp: float) -> None:
-        self.recognize_image(self.convert_image_from_opencv(frame), timestamp)
+    def recognize_image_from_opencv(self, frame: OpenCVImage, timestamp: float) -> mp.Image:
+        return self.recognize_image(self.convert_image_from_opencv(frame), timestamp)
 
-    def recognize_image(self, image: mp.Image, timestamp: float) -> None:
+    def recognize_image(self, image: mp.Image, timestamp: float) -> mp.Image:
         self.recognizer.recognize_async(image, int(timestamp * 1000))  # Convert seconds to milliseconds
+        return image
 
     def save_result(self, result: GestureRecognizerResult, input_image: mp.Image, timestamp_ms: int) -> None:
         """Save the latest gesture recognition result."""
-        result.__class__ = RecognizerResult  # Ensure the result is of type RecognizerResult
-        result.timestamp = timestamp_ms / 1000  # Convert milliseconds to seconds
-        result.recognized_image = input_image  # Store the recognized image
-        self.last_result = result
+        self.last_result = RecognizerResult(
+            gestures=result.gestures,
+            handedness=result.handedness,
+            hand_landmarks=[  # Convert MediaPipe landmarks to our Landmark model
+                [Landmark.from_normalized(landmark, input_image.width, input_image.height) for landmark in landmarks]
+                for landmarks in result.hand_landmarks
+            ],
+            timestamp=timestamp_ms / 1000,  # Convert milliseconds to seconds
+            recognized_image=input_image,  # Store the recognized image
+        )
 
     def close(self) -> None:
         """Close the recognizer and release resources."""
@@ -102,7 +115,7 @@ class Recognizer:
         self,
         frames: Iterator[T],
         hands: Hands,
-        recognize_fn: Callable[[T, float], None],
+        recognize_fn: Callable[[T, float], mp.Image],
     ) -> Iterator[tuple[T, StreamInfo, RecognizerResult]]:
         """Generic frame handling logic for both mp.Image and OpenCVImage frames."""
         start_time = time.perf_counter()
@@ -115,14 +128,16 @@ class Recognizer:
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
 
-            recognize_fn(frame, elapsed_time)
+            # Call recognize function and get MediaPipe image
+            mp_image = recognize_fn(frame, elapsed_time)
+
             if self.last_result is None:
                 continue
             if self.last_result.timestamp == last_recognized_timestamp:
                 continue
 
             # Update hands and increment recognized frames counter
-            hands.update_hands(self)
+            hands.update_hands(self, mp_image.width, mp_image.height)
             recognized_frames_count += 1
             last_recognized_timestamp = self.last_result.timestamp
 
@@ -137,6 +152,8 @@ class Recognizer:
                 frames_fps=iterator_fps,
                 recognition_fps=recognition_fps,
                 latency=latency,
+                height=mp_image.height,
+                width=mp_image.width,
             )
 
             yield frame, stream_info, self.last_result
@@ -170,6 +187,8 @@ class StreamInfo(NamedTuple):
     frames_fps: float  # FPS of the frame iterator
     recognition_fps: float  # FPS of recognition (based on update_hands calls)
     latency: float  # Time since last result (current time - last result timestamp)
+    width: int  # Width of the image
+    height: int  # Height of the image
 
 
 T = TypeVar("T")

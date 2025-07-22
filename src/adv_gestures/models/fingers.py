@@ -7,9 +7,6 @@ from math import sqrt
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
-from mediapipe.tasks.python.components.containers import (  # type: ignore[import-untyped]
-    NormalizedLandmark,
-)
 
 from ..smoothing import (
     CoordSmoother,
@@ -20,6 +17,7 @@ from ..smoothing import (
     smoothed_float,
 )
 from .gestures import Gestures
+from .landmarks import Landmark
 
 if TYPE_CHECKING:
     from .hands import Hand
@@ -101,7 +99,7 @@ class Finger(SmoothedBase):
         super().__init__()
         self.index = index
         self.hand = hand
-        self.landmarks: list[NormalizedLandmark] = []
+        self.landmarks: list[Landmark] = []
 
     def reset(self) -> None:
         """Reset the finger and clear all cached properties."""
@@ -112,7 +110,7 @@ class Finger(SmoothedBase):
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
 
-    def update(self, landmarks: list[NormalizedLandmark]) -> None:
+    def update(self, landmarks: list[Landmark]) -> None:
         """Update the finger with new landmarks."""
         self.landmarks = landmarks
 
@@ -381,7 +379,7 @@ class Finger(SmoothedBase):
         max_distance = max(distances) if distances else 0
         return max_distance < alignment_threshold
 
-    def _calc_start_point(self) -> tuple[float, float] | None:
+    def _calc_start_point(self) -> tuple[int, int] | None:
         """Get the start point of the finger (base)."""
         if not self.landmarks:
             return None
@@ -389,7 +387,7 @@ class Finger(SmoothedBase):
 
     start_point = SmoothedProperty(_calc_start_point, CoordSmoother)
 
-    def _calc_end_point(self) -> tuple[float, float] | None:
+    def _calc_end_point(self) -> tuple[int, int] | None:
         """Get the end point of the finger (tip)."""
         if not self.landmarks:
             return None
@@ -522,9 +520,9 @@ class Finger(SmoothedBase):
         if self.index == FingerIndex.THUMB:
             return False
 
-        if self.is_fully_bent:
-            return False
-
+        # if self.is_fully_bent:
+        #     return False
+        #
         # Get the thumb finger
         thumb = None
         for finger in self.hand.fingers:
@@ -539,17 +537,27 @@ class Finger(SmoothedBase):
         thumb_tip = thumb.landmarks[-1]
         finger_tip = self.landmarks[-1]
 
-        # Calculate 3D spatial distance between tips
+        # Calculate distance (coordinates already include aspect ratio correction)
         dx = finger_tip.x - thumb_tip.x
         dy = finger_tip.y - thumb_tip.y
-        dz = (finger_tip.z - thumb_tip.z) if hasattr(finger_tip, "z") and hasattr(thumb_tip, "z") else 0
+        distance = sqrt(dx**2 + dy**2)
 
-        distance = sqrt(dx**2 + dy**2 + dz**2)
+        # Calculate hand scale using the current finger's DIP-TIP segment length
+        # This gives us a reference that scales with hand distance from camera
+        hand_scale = 1.0
 
-        # Touch threshold (in normalized coordinates)
-        touch_threshold = 0.05  # Adjust based on testing
+        if len(self.landmarks) >= 4:
+            dip = self.landmarks[-2]  # DIP
+            tip = self.landmarks[-1]  # TIP
+            # Calculate segment length (coordinates already include aspect ratio)
+            segment_dx = tip.x - dip.x
+            segment_dy = tip.y - dip.y
+            hand_scale = sqrt(segment_dx**2 + segment_dy**2)
 
-        return distance < touch_threshold
+        # Touch threshold relative to hand scale
+        relative_threshold = 1.2 * hand_scale
+
+        return distance < relative_threshold
 
     touches_thumb = smoothed_bool(_calc_touches_thumb)
 

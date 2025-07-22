@@ -42,7 +42,10 @@ def draw_dotted_box(
         The image with the box drawn
     """
     height, width = image.shape[:2]
-    x1, y1, x2, y2 = box.to_pixels(width, height)
+    x1 = int(round(box.min_x))
+    y1 = int(round(box.min_y))
+    x2 = int(round(box.max_x))
+    y2 = int(round(box.max_y))
 
     # Top edge
     x = x1
@@ -85,9 +88,8 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
 
     # Draw wrist landmark
     if hand.wrist_landmark:
-        height, width = image.shape[:2]
-        wrist_x = int(hand.wrist_landmark.x * width)
-        wrist_y = int(hand.wrist_landmark.y * height)
+        wrist_x = int(round(hand.wrist_landmark.x))
+        wrist_y = int(round(hand.wrist_landmark.y))
         cv2.circle(image, (wrist_x, wrist_y), 5, (255, 255, 255), -1)
 
     # Draw palm
@@ -100,33 +102,22 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
 
     # Draw main direction arrow
     if hand.main_direction and hand.wrist_landmark:
-        height, width = image.shape[:2]
-
         # Start point at wrist
-        start_x = int(hand.wrist_landmark.x * width)
-        start_y = int(hand.wrist_landmark.y * height)
+        start_x = hand.wrist_landmark.x
+        start_y = hand.wrist_landmark.y
 
-        # The main_direction is in normalized space, so we need to convert it to pixel space
-        # accounting for the aspect ratio
+        # The main_direction is already a normalized vector in pixel space
         dx_norm, dy_norm = hand.main_direction
 
-        # Convert normalized direction to pixel direction
-        dx_pixel = dx_norm * width
-        dy_pixel = dy_norm * height
+        # Calculate end point
+        arrow_length = 70  # pixels
+        end_x = int(start_x + dx_norm * arrow_length)
+        end_y = int(start_y + dy_norm * arrow_length)
 
-        # Re-normalize in pixel space
-        magnitude_pixel = sqrt(dx_pixel**2 + dy_pixel**2)
-        if magnitude_pixel > 0:
-            dx_pixel_norm = dx_pixel / magnitude_pixel
-            dy_pixel_norm = dy_pixel / magnitude_pixel
-
-            # Calculate end point
-            arrow_length = 70  # pixels
-            end_x = int(start_x + dx_pixel_norm * arrow_length)
-            end_y = int(start_y + dy_pixel_norm * arrow_length)
-
-            # Draw arrow (cyan color)
-            cv2.arrowedLine(image, (start_x, start_y), (end_x, end_y), (255, 255, 0), 3, tipLength=0.3)
+        # Draw arrow (cyan color)
+        cv2.arrowedLine(
+            image, (int(round(start_x)), int(round(start_y))), (end_x, end_y), (255, 255, 0), 3, tipLength=0.3
+        )
 
     # Draw bounding box with dotted lines
     if hand.bounding_box:
@@ -152,17 +143,15 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
 
 def draw_palm_marks(palm: Palm, image: OpenCVImage) -> OpenCVImage:
     """Draw the palm center on the image."""
-    height, width = image.shape[:2]
-
     centroid = palm.centroid
     if not centroid:
         return image
 
     palm_x, palm_y = centroid
 
-    # Convert to pixel coordinates
-    palm_center_x = int(palm_x * width)
-    palm_center_y = int(palm_y * height)
+    # Already in pixel coordinates
+    palm_center_x = int(round(palm_x))
+    palm_center_y = int(round(palm_y))
 
     # Determine palm color based on facing
     palm_color = (0, 255, 0) if palm.hand.is_facing_camera else (255, 0, 0)
@@ -175,12 +164,10 @@ def draw_palm_marks(palm: Palm, image: OpenCVImage) -> OpenCVImage:
 
 def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
     """Draw the finger on the image."""
-    height, width = image.shape[:2]
-
     # Draw all landmarks
     for landmark in finger.landmarks:
-        x = int(landmark.x * width)
-        y = int(landmark.y * height)
+        x = landmark.x
+        y = landmark.y
         cv2.circle(image, (x, y), 3, FINGER_COLORS[finger.index], -1)
 
     if not finger.start_point or not finger.end_point:
@@ -189,16 +176,17 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
 
     # Draw colored line for straight or nearly straight finger
     if finger.is_straight or finger.is_nearly_straight:
-        start_x = int(finger.start_point[0] * width)
-        start_y = int(finger.start_point[1] * height)
-        end_x = int(finger.end_point[0] * width)
-        end_y = int(finger.end_point[1] * height)
+        start_x = finger.start_point[0]
+        start_y = finger.start_point[1]
+        end_x = finger.end_point[0]
+        end_y = finger.end_point[1]
 
         color = FINGER_COLORS[finger.index]
 
         if finger.is_straight:
-            # Solid line for straight fingers
-            cv2.line(image, (start_x, start_y), (end_x, end_y), color, 3)
+            cv2.line(
+                image, (int(round(start_x)), int(round(start_y))), (int(round(end_x)), int(round(end_y))), color, 3
+            )
         else:
             # Dashed line for nearly straight fingers
             # Calculate total length and create dashed pattern
@@ -237,27 +225,26 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
     # Draw finger direction arrow
     if finger.tip_direction:
         # Get fingertip position
-        tip_x = int(finger.end_point[0] * width)
-        tip_y = int(finger.end_point[1] * height)
+        tip_x = finger.end_point[0]
+        tip_y = finger.end_point[1]
 
-        # Convert normalized direction to pixel space
+        # The tip_direction is already a normalized vector in pixel space
         dx_norm, dy_norm = finger.tip_direction
-        dx_pixel = dx_norm * width
-        dy_pixel = dy_norm * height
 
-        # Re-normalize in pixel space
-        magnitude_pixel = sqrt(dx_pixel**2 + dy_pixel**2)
-        if magnitude_pixel > 0:
-            dx_pixel_norm = dx_pixel / magnitude_pixel
-            dy_pixel_norm = dy_pixel / magnitude_pixel
+        # Calculate arrow end point
+        arrow_length = 30  # Small arrow
+        arrow_end_x = int(tip_x + dx_norm * arrow_length)
+        arrow_end_y = int(tip_y + dy_norm * arrow_length)
 
-            # Calculate arrow end point
-            arrow_length = 30  # Small arrow
-            arrow_end_x = int(tip_x + dx_pixel_norm * arrow_length)
-            arrow_end_y = int(tip_y + dy_pixel_norm * arrow_length)
-
-            # Draw small arrow in white
-            cv2.arrowedLine(image, (tip_x, tip_y), (arrow_end_x, arrow_end_y), (255, 255, 255), 2, tipLength=0.4)
+        # Draw small arrow in white
+        cv2.arrowedLine(
+            image,
+            (int(round(tip_x)), int(round(tip_y))),
+            (arrow_end_x, arrow_end_y),
+            (255, 255, 255),
+            2,
+            tipLength=0.4,
+        )
 
     # Draw red circle if this finger touches the thumb
     if finger.touches_thumb:
@@ -278,9 +265,9 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
             middle_x = (finger_tip_x + thumb_tip_x) / 2
             middle_y = (finger_tip_y + thumb_tip_y) / 2
 
-            # Convert to pixel coordinates
-            pixel_x = int(middle_x * width)
-            pixel_y = int(middle_y * height)
+            # Convert to integer pixel coordinates
+            pixel_x = int(round(middle_x))
+            pixel_y = int(round(middle_y))
 
             # Draw small red filled circle
             cv2.circle(image, (pixel_x, pixel_y), 8, (0, 0, 255), -1)
@@ -297,10 +284,10 @@ def draw_finger_marks(finger: Finger, image: OpenCVImage) -> OpenCVImage:
 
             if touching_finger and touching_finger.end_point:
                 # Draw a line between the fingertips
-                my_tip_x = int(finger.end_point[0] * width)
-                my_tip_y = int(finger.end_point[1] * height)
-                other_tip_x = int(touching_finger.end_point[0] * width)
-                other_tip_y = int(touching_finger.end_point[1] * height)
+                my_tip_x = int(round(finger.end_point[0]))
+                my_tip_y = int(round(finger.end_point[1]))
+                other_tip_x = int(round(touching_finger.end_point[0]))
+                other_tip_y = int(round(touching_finger.end_point[1]))
 
                 # Draw a thick cyan line between touching fingers
                 cv2.line(image, (my_tip_x, my_tip_y), (other_tip_x, other_tip_y), (255, 255, 0), 4)

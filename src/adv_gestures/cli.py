@@ -258,6 +258,7 @@ def run_gestures(camera_info: CameraInfo, show_preview: bool = True) -> None:
                         break
     except Exception as e:
         print(f"\nError loading gesture recognizer: {e}", file=sys.stderr)
+        raise
     finally:
         cap.release()
         if show_preview:
