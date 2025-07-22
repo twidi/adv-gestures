@@ -33,17 +33,67 @@ make dev
 
 ### CLI Usage (Development/testing interface)
 ```bash
-# Run with default camera 
+# Run gesture recognition with preview (default)
 adv-gestures
 
-# Run with preview window
-adv-gestures --preview
+# Run without preview window
+adv-gestures --no-preview
 
 # Run with custom config file
 adv-gestures --config /path/to/config.json
 
-# The tool will prompt for camera selection if multiple cameras are available
+# Run with specific camera
+adv-gestures --camera "webcam"
+# or short form
+adv-gestures --cam "webcam"
+
+# Run with mirror mode
+adv-gestures --mirror
+
+# Run with custom size (max dimension)
+adv-gestures --size 1920
+# or short form
+adv-gestures -s 800
+
+# Combine multiple options
+adv-gestures --camera "webcam" --mirror --size 1600
+
+# Check camera functionality without gesture recognition
+adv-gestures check-camera
+
+# Check specific camera
+adv-gestures check-camera --camera "webcam"
+
+# Check camera with preview disabled
+adv-gestures check-camera --no-preview
+
+# Check with mirror and custom size
+adv-gestures check-camera --mirror --size 1920
+
+# Check with custom config file
+adv-gestures check-camera --config /path/to/config.json
+
+# The tool will prompt for camera selection if multiple cameras are available when --camera is not specified
 ```
+
+### Configuration File
+
+The application supports a JSON configuration file that can include CLI defaults:
+
+```json
+{
+  "cli": {
+    "camera": "webcam",
+    "mirror": true,
+    "size": 1920
+  },
+  "hands": {
+    // ... hand configuration options
+  }
+}
+```
+
+CLI options always take precedence over configuration file values. The default config location is platform-specific and will be shown if the config file is not found.
 
 ### Library Usage
 ```python

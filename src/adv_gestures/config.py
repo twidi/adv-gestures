@@ -58,8 +58,17 @@ class HandsConfig(BaseModel):
     adjacent_fingers: AdjacentFingerConfig = AdjacentFingerConfig()
 
 
+class CLIConfig(BaseModel):
+    """Configuration for CLI settings."""
+
+    camera: str | None = None
+    mirror: bool = False
+    size: int = 1280
+
+
 class Config(BaseModel):
     hands: HandsConfig = HandsConfig()
+    cli: CLIConfig = CLIConfig()
 
     @classmethod
     def get_user_path(cls) -> Path:

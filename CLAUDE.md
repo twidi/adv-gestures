@@ -16,8 +16,12 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - `make pretty lint` - Run ALL prettifiers et linters 
 
 ### Running the Application (Development/testing interface)
-- `adv-gestures` - Run the main CLI application (requires camera access)
-- The app will prompt for camera selection if multiple cameras are available
+- `adv-gestures` - Run gesture recognition (default command, requires camera access)
+- `adv-gestures --camera "name"` - Run gesture recognition with specific camera (or `--cam`)
+- `adv-gestures check-camera` - Check camera functionality without gesture recognition
+- `adv-gestures check-camera --camera "name"` - Check specific camera
+- Both commands support `--config`, `--mirror`, `--size` options
+- The app will prompt for camera selection if multiple cameras are available when --camera is not specified
 
 ### Cleaning
 - `make clean` - Clean build artifacts
@@ -53,6 +57,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - JSON-based configuration files
    - Default config location: user config directory via platformdirs
    - Nested configuration for hands, fingers, and gesture detection thresholds
+   - CLI configuration options: camera filter, mirror mode, and capture size
 
 ### Key Patterns
 

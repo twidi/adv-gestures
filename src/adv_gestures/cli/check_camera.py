@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+from typing import cast
+
+import cv2  # type: ignore[import-untyped]
+import typer
+
+from .. import Config
+from ..cameras import CameraInfo
+from .common import (
+    DEFAULT_USER_CONFIG_PATH,
+    app,
+    init_camera_capture,
+    pick_camera,
+)
+
+
+def check_camera(
+    camera_info: CameraInfo,
+    show_preview: bool,
+    mirror: bool,
+    desired_size: int,
+) -> None:
+    """Check camera functionality without gesture recognition."""
+    cap, window_name = init_camera_capture(camera_info, show_preview, desired_size)
+    if cap is None:
+        return
+
+    if not show_preview:
+        print("Camera check completed successfully.")
+        cap.release()
+        return
+
+    print("Press 'q' or ESC to quit")
+
+    # Initialize FPS tracking
+    fps = 0.0
+    frame_count = 0
+    fps_timer = time.time()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Failed to capture frame", file=sys.stderr)
+            break
+
+        # Calculate FPS
+        frame_count += 1
+        current_time = time.time()
+        if current_time - fps_timer >= 1.0:  # Update FPS every second
+            fps = frame_count / (current_time - fps_timer)
+            frame_count = 0
+            fps_timer = current_time
+
+        # Mirror frame if requested
+        if mirror:
+            frame = cv2.flip(frame, 1)
+
+        # Add FPS text to frame
+        cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        cv2.imshow(cast(str, window_name), frame)
+
+        # Check for key press
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q") or key == 27:  # 'q' or ESC
+            break
+
+        # Check if window was closed
+        try:
+            if cv2.getWindowProperty(cast(str, window_name), cv2.WND_PROP_VISIBLE) < 1:
+                break
+        except cv2.error:
+            # Window was closed
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+@app.command(name="check-camera")
+def check_camera_cmd(
+    camera: str | None = typer.Option(None, "--camera", "--cam", help="Camera name filter (case insensitive)"),
+    preview: bool = typer.Option(True, "--preview/--no-preview", help="Show visual preview window"),
+    mirror: bool | None = typer.Option(None, "--mirror/--no-mirror", help="Mirror the video output"),
+    size: int | None = typer.Option(None, "--size", "-s", help="Maximum dimension of the camera capture"),
+    config_path: Path | None = typer.Option(  # noqa: B008
+        None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
+    ),
+) -> None:
+    """Check camera functionality without gesture recognition."""
+    # Load configuration
+    config = Config.load(config_path)
+
+    # Use config values as defaults, but CLI options take precedence
+    final_camera = camera if camera is not None else config.cli.camera
+    final_mirror = mirror if mirror is not None else config.cli.mirror
+    final_size = size if size is not None else config.cli.size
+
+    selected = pick_camera(final_camera)
+
+    if selected:
+        print(f"\nSelected: {selected}")
+        check_camera(selected, show_preview=preview, mirror=final_mirror, desired_size=final_size)
+    else:
+        print("\nNo camera selected.")
