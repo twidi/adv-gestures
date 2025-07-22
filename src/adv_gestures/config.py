@@ -2,73 +2,89 @@ import sys
 from pathlib import Path
 
 import platformdirs
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BaseFingerStraightnessConfig(BaseModel):
-    straight_threshold: float = 0.85
-    nearly_straight_threshold: float = 0.65
+    straight_threshold: float = Field(0.85, description="Minimum score for a finger to be considered straight")
+    nearly_straight_threshold: float = Field(
+        0.65, description="Minimum score for a finger to be considered nearly straight"
+    )
 
 
 class FingerStraightnessConfig(BaseFingerStraightnessConfig):
-    distal_segments_max_ratio: float = 1.5
-    distal_segments_max_ratio_back: float = 1.5
-    max_angle_degrees: float = 10.0
-    segment_ratio_score_at_threshold: float = 0.7
-    segment_ratio_decay_rate: float = 2.0
-    segment_ratio_linear_range: float = 0.15
-    angle_score_linear_range: float = 0.15
-    angle_score_at_threshold: float = 0.85
-    angle_decay_rate: float = 20.0
-    angle_score_weight: float = 0.7
-    segment_ratio_weight: float = 0.3
+    distal_segments_max_ratio: float = Field(
+        1.5, description="Max ratio between distal finger segments when facing camera"
+    )
+    distal_segments_max_ratio_back: float = Field(
+        1.5, description="Max ratio between distal finger segments when facing away"
+    )
+    max_angle_degrees: float = Field(10.0, description="Maximum angle (degrees) for perfect straightness score")
+    segment_ratio_score_at_threshold: float = Field(0.7, description="Score when segment ratio equals max_ratio")
+    segment_ratio_decay_rate: float = Field(2.0, description="Exponential decay rate for segment ratio scoring")
+    segment_ratio_linear_range: float = Field(0.15, description="Linear interpolation range for segment ratio")
+    angle_score_linear_range: float = Field(0.15, description="Linear interpolation range for angle scoring")
+    angle_score_at_threshold: float = Field(0.85, description="Score when angle equals max_angle_degrees")
+    angle_decay_rate: float = Field(20.0, description="Exponential decay rate for angle scoring")
+    angle_score_weight: float = Field(0.7, description="Weight for angle score in final calculation")
+    segment_ratio_weight: float = Field(0.3, description="Weight for segment ratio score in final calculation")
 
 
 class ThumbStraightnessConfig(BaseFingerStraightnessConfig):
-    alignment_threshold: float = 0.01
-    max_deviation_for_zero_score: float = 0.1
+    alignment_threshold: float = Field(0.01, description="Minimum cross product magnitude for perfect alignment")
+    max_deviation_for_zero_score: float = Field(0.1, description="Deviation magnitude that results in zero score")
 
 
 class BaseFingerConfig(BaseModel):
-    fully_bent_max_angle_degrees: float = 30.0
+    fully_bent_max_angle_degrees: float = Field(
+        30.0, description="Max angle (degrees) for a finger to be considered fully bent"
+    )
     straightness: BaseFingerStraightnessConfig
 
 
 class FingerConfig(BaseFingerConfig):
-    straightness: FingerStraightnessConfig = FingerStraightnessConfig()
-    thumb_distance_relative_threshold: float = 1.2
+    straightness: FingerStraightnessConfig = FingerStraightnessConfig()  # type: ignore[call-arg]
+    thumb_distance_relative_threshold: float = Field(
+        1.2, description="Relative distance threshold for thumb touch detection"
+    )
 
 
 class ThumbConfig(BaseFingerConfig):
-    straightness: ThumbStraightnessConfig = ThumbStraightnessConfig()
+    straightness: ThumbStraightnessConfig = ThumbStraightnessConfig()  # type: ignore[call-arg]
 
 
 class AdjacentFingerConfig(BaseModel):
-    index_middle_max_angle_degrees: float = 3.0
-    middle_ring_max_angle_degrees: float = 1.5
-    ring_pinky_max_angle_degrees: float = 2.0
+    index_middle_max_angle_degrees: float = Field(
+        3.0, description="Max angle (degrees) between index and middle fingers for touching"
+    )
+    middle_ring_max_angle_degrees: float = Field(
+        1.5, description="Max angle (degrees) between middle and ring fingers for touching"
+    )
+    ring_pinky_max_angle_degrees: float = Field(
+        2.0, description="Max angle (degrees) between ring and pinky fingers for touching"
+    )
 
 
 class HandsConfig(BaseModel):
-    thumb: ThumbConfig = ThumbConfig(fully_bent_max_angle_degrees=150)
-    index: FingerConfig = FingerConfig()
-    middle: FingerConfig = FingerConfig()
-    ring: FingerConfig = FingerConfig()
-    pinky: FingerConfig = FingerConfig()
-    adjacent_fingers: AdjacentFingerConfig = AdjacentFingerConfig()
+    thumb: ThumbConfig = ThumbConfig(fully_bent_max_angle_degrees=150)  # type: ignore[call-arg]
+    index: FingerConfig = FingerConfig()  # type: ignore[call-arg]
+    middle: FingerConfig = FingerConfig()  # type: ignore[call-arg]
+    ring: FingerConfig = FingerConfig()  # type: ignore[call-arg]
+    pinky: FingerConfig = FingerConfig()  # type: ignore[call-arg]
+    adjacent_fingers: AdjacentFingerConfig = AdjacentFingerConfig()  # type: ignore[call-arg]
 
 
 class CLIConfig(BaseModel):
     """Configuration for CLI settings."""
 
-    camera: str | None = None
-    mirror: bool = False
-    size: int = 1280
+    camera: str | None = Field(None, description="Camera name filter for auto-selection")
+    mirror: bool = Field(False, description="Mirror the video output horizontally")
+    size: int = Field(1280, description="Maximum dimension for camera capture resolution")
 
 
 class Config(BaseModel):
-    hands: HandsConfig = HandsConfig()
-    cli: CLIConfig = CLIConfig()
+    hands: HandsConfig = HandsConfig()  # type: ignore[call-arg]
+    cli: CLIConfig = CLIConfig()  # type: ignore[call-arg]
 
     @classmethod
     def get_user_path(cls) -> Path:
