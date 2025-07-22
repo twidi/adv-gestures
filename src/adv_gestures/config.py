@@ -43,14 +43,23 @@ class BaseFingerConfig(BaseModel):
 
 
 class FingerConfig(BaseFingerConfig):
-    straightness: FingerStraightnessConfig = FingerStraightnessConfig()  # type: ignore[call-arg]
+    straightness: FingerStraightnessConfig = Field(
+        default_factory=lambda: FingerStraightnessConfig(),
+        description="Configuration for finger straightness detection",
+    )
     thumb_distance_relative_threshold: float = Field(
         1.2, description="Relative distance threshold for thumb touch detection"
     )
 
 
 class ThumbConfig(BaseFingerConfig):
-    straightness: ThumbStraightnessConfig = ThumbStraightnessConfig()  # type: ignore[call-arg]
+    fully_bent_max_angle_degrees: float = Field(
+        150.0, description="Max angle (degrees) for a finger to be considered fully bent"
+    )
+    straightness: ThumbStraightnessConfig = Field(
+        default_factory=lambda: ThumbStraightnessConfig(),
+        description="Configuration for thumb straightness detection",
+    )
 
 
 class AdjacentFingerConfig(BaseModel):
@@ -66,12 +75,20 @@ class AdjacentFingerConfig(BaseModel):
 
 
 class HandsConfig(BaseModel):
-    thumb: ThumbConfig = ThumbConfig(fully_bent_max_angle_degrees=150)  # type: ignore[call-arg]
-    index: FingerConfig = FingerConfig()  # type: ignore[call-arg]
-    middle: FingerConfig = FingerConfig()  # type: ignore[call-arg]
-    ring: FingerConfig = FingerConfig()  # type: ignore[call-arg]
-    pinky: FingerConfig = FingerConfig()  # type: ignore[call-arg]
-    adjacent_fingers: AdjacentFingerConfig = AdjacentFingerConfig()  # type: ignore[call-arg]
+    thumb: ThumbConfig = Field(
+        default_factory=lambda: ThumbConfig(),
+        description="Configuration for thumb detection",
+    )
+    index: FingerConfig = Field(default_factory=lambda: FingerConfig(), description="Configuration for index finger")
+    middle: FingerConfig = Field(
+        default_factory=lambda: FingerConfig(), description="Configuration for middle finger"
+    )
+    ring: FingerConfig = Field(default_factory=lambda: FingerConfig(), description="Configuration for ring finger")
+    pinky: FingerConfig = Field(default_factory=lambda: FingerConfig(), description="Configuration for pinky finger")
+    adjacent_fingers: AdjacentFingerConfig = Field(
+        default_factory=lambda: AdjacentFingerConfig(),
+        description="Configuration for adjacent finger touch detection",
+    )
 
 
 class CLIConfig(BaseModel):
@@ -83,8 +100,8 @@ class CLIConfig(BaseModel):
 
 
 class Config(BaseModel):
-    hands: HandsConfig = HandsConfig()  # type: ignore[call-arg]
-    cli: CLIConfig = CLIConfig()  # type: ignore[call-arg]
+    hands: HandsConfig = Field(default_factory=lambda: HandsConfig(), description="Hand detection configuration")
+    cli: CLIConfig = Field(default_factory=lambda: CLIConfig(), description="CLI configuration")
 
     @classmethod
     def get_user_path(cls) -> Path:
