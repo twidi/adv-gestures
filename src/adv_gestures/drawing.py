@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import cv2  # type: ignore[import-untyped]
 
-from .models import Box, FingerIndex, Gestures, Hand, Hands, Palm
+from .gestures import Gestures
+from .models import Box, FingerIndex, Hand, Hands, Palm
 from .models.fingers import AnyFinger, Thumb
 
 if TYPE_CHECKING:

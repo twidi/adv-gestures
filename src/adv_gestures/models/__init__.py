@@ -8,7 +8,6 @@ from .fingers import (
     RingFinger,
     Thumb,
 )
-from .gestures import Gestures
 from .hands import Box, Hand, Hands, Palm
 
 __all__ = [
@@ -24,5 +23,4 @@ __all__ = [
     "Hand",
     "Hands",
     "Palm",
-    "Gestures",
 ]

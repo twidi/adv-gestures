@@ -1,8 +1,11 @@
 import sys
 from pathlib import Path
+from typing import Any
 
 import platformdirs
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
+
+from .gestures import CUSTOM_GESTURES
 
 
 class BaseFingerStraightnessConfig(BaseModel):
@@ -74,6 +77,40 @@ class AdjacentFingerConfig(BaseModel):
     )
 
 
+class DefaultGesturesConfig(BaseModel):
+    disable_all: bool = Field(False, description="Disable all default MediaPipe gestures")
+
+
+# Create fields for CustomGesturesDisableConfig dynamically
+_custom_gesture_fields: dict[str, Any] = {"all": (bool, Field(False, description="Disable all custom gestures"))}
+
+# Add a field for each custom gesture, sorted alphabetically
+for _gesture in sorted(CUSTOM_GESTURES, key=lambda g: g.name):
+    _field_name = _gesture.name  # This will be MIDDLE_FINGER, SPOCK, etc.
+    _custom_gesture_fields[_field_name] = (bool, Field(False, description=f"Disable {_gesture.value} gesture"))
+
+CustomGesturesDisableConfig = create_model("CustomGesturesDisableConfig", **_custom_gesture_fields)
+
+
+class CustomGesturesConfig(BaseModel):
+    disable: CustomGesturesDisableConfig = Field(  # type: ignore[valid-type]
+        default_factory=lambda: CustomGesturesDisableConfig(),
+        description="Disable configuration for custom gestures",
+    )
+
+
+class GesturesConfig(BaseModel):
+    disable_all: bool = Field(False, description="Disable all gestures (both default and custom)")
+    default: DefaultGesturesConfig = Field(
+        default_factory=lambda: DefaultGesturesConfig(),
+        description="Configuration for default MediaPipe gestures",
+    )
+    custom: CustomGesturesConfig = Field(
+        default_factory=lambda: CustomGesturesConfig(),
+        description="Configuration for custom gestures",
+    )
+
+
 class HandsConfig(BaseModel):
     thumb: ThumbConfig = Field(
         default_factory=lambda: ThumbConfig(),
@@ -88,6 +125,10 @@ class HandsConfig(BaseModel):
     adjacent_fingers: AdjacentFingerConfig = Field(
         default_factory=lambda: AdjacentFingerConfig(),
         description="Configuration for adjacent finger touch detection",
+    )
+    gestures: GesturesConfig = Field(
+        default_factory=lambda: GesturesConfig(),
+        description="Configuration for gesture detection",
     )
 
 

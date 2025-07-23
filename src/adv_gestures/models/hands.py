@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 import numpy as np
 
 from ..config import Config
+from ..gestures import CUSTOM_GESTURES, OVERRIDABLE_DEFAULT_GESTURES, Gestures
 from ..smoothing import (
     BoxSmoother,
     CoordSmoother,
@@ -26,7 +27,6 @@ from .fingers import (
     RingFinger,
     Thumb,
 )
-from .gestures import OVERRIDABLE_DEFAULT_GESTURES, Gestures
 from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 
 if TYPE_CHECKING:
@@ -100,10 +100,13 @@ class Hands:
             # Get default gesture information
             gesture_type = None
             if result.gestures and hand_index < len(result.gestures) and result.gestures[hand_index]:
-                gesture = result.gestures[hand_index][0]  # Get the top gesture
-                gesture_type = (
-                    None if gesture.category_name in (None, "None", "Unknown") else Gestures(gesture.category_name)
-                )
+                if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.default.disable_all):
+                    gesture = result.gestures[hand_index][0]  # Get the top gesture
+                    gesture_type = (
+                        None
+                        if gesture.category_name in (None, "None", "Unknown")
+                        else Gestures(gesture.category_name)
+                    )
 
             # Update hand data
             hand.update(
@@ -122,11 +125,11 @@ class Hands:
                 finger.update(landmarks=finger_landmarks)
 
             # Detect custom gestures if no default gesture was detected
-            hand.update_custom_gesture(
-                hand.detect_gesture()
-                if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES
-                else None
-            )
+            custom_gesture = None
+            if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
+                if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES:
+                    custom_gesture = hand.detect_gesture()
+            hand.update_custom_gesture(custom_gesture)
 
 
 class Hand(SmoothedBase):
@@ -564,7 +567,10 @@ class Hand(SmoothedBase):
         thumb, index, middle, ring, pinky = self.thumb, self.index, self.middle, self.ring, self.pinky
 
         # Check all custom gestures
-        for gesture in Gestures:
+        for gesture in CUSTOM_GESTURES:
+            # Check if this specific gesture is disabled
+            if getattr(self.config.hands.gestures.custom.disable, gesture.name):
+                continue
 
             # Check for Middle Finger gesture
             if gesture == Gestures.MIDDLE_FINGER:

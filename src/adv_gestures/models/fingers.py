@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar, ca
 import numpy as np
 
 from ..config import BaseFingerConfig, Config, FingerConfig, ThumbConfig
+from ..gestures import Gestures
 from ..smoothing import (
     CoordSmoother,
     NumberSmoother,
@@ -17,7 +18,6 @@ from ..smoothing import (
     smoothed_bool,
     smoothed_float,
 )
-from .gestures import Gestures
 from .landmarks import Landmark
 
 if TYPE_CHECKING:
