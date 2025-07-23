@@ -34,13 +34,19 @@ class FingerStraightnessConfig(BaseFingerStraightnessConfig):
 
 
 class ThumbStraightnessConfig(BaseFingerStraightnessConfig):
-    alignment_threshold: float = Field(0.01, description="Minimum cross product magnitude for perfect alignment")
-    max_deviation_for_zero_score: float = Field(0.1, description="Deviation magnitude that results in zero score")
+    straight_threshold: float = Field(
+        0.7, description=BaseFingerStraightnessConfig.model_fields["straight_threshold"].description
+    )
+    nearly_straight_threshold: float = Field(
+        0.5, description=BaseFingerStraightnessConfig.model_fields["nearly_straight_threshold"].description
+    )
+    alignment_threshold: float = Field(0.02, description="Minimum cross product magnitude for perfect alignment")
+    max_deviation_for_zero_score: float = Field(0.15, description="Deviation magnitude that results in zero score")
 
 
 class BaseFingerConfig(BaseModel):
     fully_bent_max_angle_degrees: float = Field(
-        30.0, description="Max angle (degrees) for a finger to be considered fully bent"
+        60.0, description="Max angle (degrees) for a finger to be considered fully bent"
     )
     straightness: BaseFingerStraightnessConfig
 
@@ -57,7 +63,7 @@ class FingerConfig(BaseFingerConfig):
 
 class ThumbConfig(BaseFingerConfig):
     fully_bent_max_angle_degrees: float = Field(
-        150.0, description="Max angle (degrees) for a finger to be considered fully bent"
+        150.0, description=BaseFingerConfig.model_fields["fully_bent_max_angle_degrees"].description
     )
     straightness: ThumbStraightnessConfig = Field(
         default_factory=lambda: ThumbStraightnessConfig(),
@@ -70,10 +76,10 @@ class AdjacentFingerConfig(BaseModel):
         3.0, description="Max angle (degrees) between index and middle fingers for touching"
     )
     middle_ring_max_angle_degrees: float = Field(
-        1.5, description="Max angle (degrees) between middle and ring fingers for touching"
+        3.0, description="Max angle (degrees) between middle and ring fingers for touching"
     )
     ring_pinky_max_angle_degrees: float = Field(
-        2.0, description="Max angle (degrees) between ring and pinky fingers for touching"
+        3.0, description="Max angle (degrees) between ring and pinky fingers for touching"
     )
 
 

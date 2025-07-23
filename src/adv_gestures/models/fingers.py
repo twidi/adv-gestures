@@ -290,7 +290,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         if self.fold_angle is None:
             return True
 
-        return self.fold_angle >= self.finger_config.fully_bent_max_angle_degrees
+        return self.fold_angle < self.finger_config.fully_bent_max_angle_degrees
 
     is_fully_bent = smoothed_bool(_calc_is_fully_bent)
 
@@ -361,6 +361,12 @@ class Thumb(Finger[ThumbConfig]):
         x1, y1 = x_coords[0], y_coords[0]
         x2, y2 = x_coords[-1], y_coords[-1]
 
+        # Calculate thumb length for normalization
+        thumb_length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+        if thumb_length < min_denominator_threshold:
+            return 0.0
+
         # Check intermediate points alignment
         max_deviation = 0.0
         for i in range(1, len(self.landmarks) - 1):
@@ -374,7 +380,9 @@ class Thumb(Finger[ThumbConfig]):
 
             if denominator > min_denominator_threshold:  # Avoid division by zero
                 distance = numerator / denominator
-                max_deviation = max(max_deviation, distance)
+                # Normalize the distance by thumb length to get a relative measure
+                normalized_distance = distance / thumb_length
+                max_deviation = max(max_deviation, normalized_distance)
 
         # Convert deviation to score
         if max_deviation <= alignment_threshold:
