@@ -738,9 +738,9 @@ class Hand(SmoothedBase):
             not self.is_gesture_disabled(Gestures.OK)
             and self.is_facing_camera
             and index.tip_on_thumb
-            and middle.is_nearly_straight_or_straight
-            and ring.is_nearly_straight_or_straight
-            and pinky.is_nearly_straight_or_straight
+            and not middle.is_fully_bent
+            and not ring.is_fully_bent
+            and not pinky.is_fully_bent
         ):
             detected[Gestures.OK] = 1.0
 
@@ -753,9 +753,7 @@ class Hand(SmoothedBase):
             and middle.is_straight
             and ring.is_straight
             and pinky.is_straight
-            and index.is_touching(middle)
-            and middle.is_touching(ring)
-            and ring.is_touching(pinky)
+            and self.all_adjacent_fingers_except_thumb_touching
         ):
             detected[Gestures.STOP] = 1.0
 
