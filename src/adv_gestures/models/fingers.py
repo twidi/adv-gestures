@@ -12,11 +12,11 @@ from ..config import BaseFingerConfig, Config, FingerConfig, ThumbConfig
 from ..gestures import Gestures
 from ..smoothing import (
     CoordSmoother,
-    NumberSmoother,
     SmoothedBase,
     SmoothedProperty,
     smoothed_bool,
     smoothed_float,
+    smoothed_optional_float,
 )
 from .landmarks import Landmark
 
@@ -215,7 +215,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
         return float(angle_deg)
 
-    fold_angle = SmoothedProperty(_calc_fold_angle, NumberSmoother)
+    fold_angle = smoothed_optional_float(_calc_fold_angle)
 
     def _calc_tip_direction(self) -> tuple[float, float] | None:
         """Calculate the direction of the finger tip using the last two points.

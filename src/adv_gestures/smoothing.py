@@ -4,7 +4,11 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from time import time
-from typing import Any, Generic, Protocol, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, overload
+
+if TYPE_CHECKING:
+    from .models import Box
+
 
 # Smoothing configuration constants
 SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)
@@ -12,7 +16,6 @@ SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving averag
 GESTURE_SMOOTHING_WINDOW = 0.3  # Window for gesture smoothing operations (in seconds)
 
 T = TypeVar("T")
-P = TypeVar("P")
 
 
 @dataclass
@@ -23,25 +26,26 @@ class TimedValue(Generic[T]):
     timestamp: float  # time.time()
 
 
-class NumberSmoother:
+NumberSmootherType = TypeVar("NumberSmootherType", float, float | None)
+
+
+class _NumberSmoother(Generic[NumberSmootherType]):
     """Smooths a numeric value over a time window."""
 
     def __init__(
         self,
         window: float = SMOOTHING_WINDOW,
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
+        default_value: NumberSmootherType = 0.0,
     ):
         self.window = window
         self.ema_alpha = ema_alpha
-        self.history: deque[TimedValue[float]] = deque()
-        self._last_raw: float | None = 0.0
+        self.history: deque[TimedValue[NumberSmootherType | None]] = deque()
+        self._last_raw: NumberSmootherType | None = default_value
+        self.default_value: NumberSmootherType = default_value
 
-    def update(self, value: float | None) -> float | None:
+    def update(self, value: NumberSmootherType | None) -> NumberSmootherType:
         """Update with new value and return smoothed result."""
-        if value is None:
-            self._last_raw = None
-            return None
-
         now = time()
         self._last_raw = value
         self.history.append(TimedValue(value, now))
@@ -53,14 +57,28 @@ class NumberSmoother:
 
         return self._compute_smoothed()
 
-    def _compute_smoothed(self) -> float:
+    def _compute_smoothed(self) -> NumberSmootherType:
         """Compute smoothed value using exponential moving average."""
         if not self.history:
-            return 0.0
+            return self.default_value
 
-        # Exponential moving average
-        result = self.history[0].value
-        for tv in list(self.history)[1:]:
+        # Find first non-None value to initialize
+        result: NumberSmootherType | None = None
+        start_idx = 0
+        for i, tv in enumerate(self.history):
+            if tv.value is not None:
+                result = tv.value
+                start_idx = i
+                break
+
+        if result is None:
+            # If all values are None, return default value
+            return self.default_value
+
+        # Exponential moving average starting from the next value after initialization
+        for tv in list(self.history)[start_idx + 1 :]:
+            if tv.value is None:
+                continue
             result = self.ema_alpha * tv.value + (1 - self.ema_alpha) * result
         return result
 
@@ -68,6 +86,28 @@ class NumberSmoother:
     def raw(self) -> float | None:
         """Get the last raw (unsmoothed) value."""
         return self._last_raw
+
+
+class NumberSmoother(_NumberSmoother[float]):
+    pass
+
+
+class OptionalNumberSmoother(_NumberSmoother[float | None]):
+    """Smooths a numeric value that can be None."""
+
+    def __init__(
+        self,
+        window: float = SMOOTHING_WINDOW,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
+        default_value: float | None = None,
+    ):
+        self.none_smoother = BooleanSmoother(window=window, ema_alpha=ema_alpha)
+        super().__init__(window=window, ema_alpha=ema_alpha, default_value=default_value)
+
+    def update(self, value: float | None) -> float | None:
+        smoothed_to_none = self.none_smoother.update(value is None)
+        smoothed_value = super().update(value)
+        return None if smoothed_to_none else smoothed_value
 
 
 class CoordSmoother:
@@ -80,29 +120,24 @@ class CoordSmoother:
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
         self.dimensions = dimensions
-        self.smoothers = [NumberSmoother(window, ema_alpha) for _ in range(dimensions)]
-        self._last_raw: tuple[float, ...] | None = (0.0,) * dimensions
+        self.smoothers = [OptionalNumberSmoother(window, ema_alpha) for _ in range(dimensions)]
+        self._last_raw: tuple[float, ...] | None = None
 
     def update(self, coord: tuple[float, ...] | None) -> tuple[float, ...] | None:
         """Update with new coordinate and return smoothed result."""
-        if coord is None:
-            self._last_raw = None
-            return None
 
-        if len(coord) != self.dimensions:
+        if coord is not None and len(coord) != self.dimensions:
             raise ValueError(f"Expected {self.dimensions} dimensions, got {len(coord)}")
 
         self._last_raw = coord
 
         # Update each dimension
-        results = []
-        for s, v in zip(self.smoothers, coord, strict=True):
-            result = s.update(v)
-            if result is None:
-                return None
-            results.append(result)
+        results = tuple(
+            s.update(v)
+            for s, v in zip(self.smoothers, ((None,) * self.dimensions) if coord is None else coord, strict=True)
+        )
 
-        return tuple(results)
+        return None if None in results else cast(tuple[float, ...], results)
 
     @property
     def raw(self) -> tuple[float, ...] | None:
@@ -120,25 +155,21 @@ class BoxSmoother:
     ):
         self.min_smoother = CoordSmoother(2, window, ema_alpha)
         self.max_smoother = CoordSmoother(2, window, ema_alpha)
-        self._last_raw: Any = None  # Will be Box type from __init__.py
+        self._last_raw: Box | None = None
 
-    def update(self, box: Any) -> Any:
+    def update(self, box: "Box | None") -> "Box | None":
         """Update with new bounding box and return smoothed result."""
         # Import here to avoid circular import
         from .models import Box
 
         self._last_raw = box
 
-        # Handle None case
-        if box is None:
+        min_smoothed = self.min_smoother.update(None if box is None else (box.min_x, box.min_y))
+        max_smoothed = self.max_smoother.update(None if box is None else (box.max_x, box.max_y))
+
+        if min_smoothed is None or max_smoothed is None:
+            # If either smoothed value is None, return None
             return None
-
-        min_smoothed = self.min_smoother.update((box.min_x, box.min_y))
-        max_smoothed = self.max_smoother.update((box.max_x, box.max_y))
-
-        # Both should not be None since we passed non-None values
-        assert min_smoothed is not None
-        assert max_smoothed is not None
 
         return Box(
             min_x=min_smoothed[0],
@@ -148,7 +179,7 @@ class BoxSmoother:
         )
 
     @property
-    def raw(self) -> Any:
+    def raw(self) -> "Box | None":
         """Get the last raw (unsmoothed) bounding box."""
         return self._last_raw
 
@@ -162,7 +193,7 @@ class BooleanSmoother:
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
         # Use NumberSmoother internally
-        self.smoother = NumberSmoother(window, ema_alpha)
+        self.smoother = NumberSmoother(0.0, window, ema_alpha)
         self._last_raw = False
 
     def update(self, value: bool) -> bool:
@@ -170,7 +201,7 @@ class BooleanSmoother:
         self._last_raw = value
 
         # Convert bool to float (True=1.0, False=0.0)
-        numeric_result = self.smoother.update(1.0 if value else 0.0)
+        numeric_result = self.smoother.update(float(value))
 
         # Convert back to bool (threshold at 0.5)
         return numeric_result >= 0.5 if numeric_result is not None else False
@@ -355,7 +386,18 @@ def smoothed_bool(
 def smoothed_float(
     func: Callable[[Any], float],
     cached: bool = True,
+    default_value: float = 0.0,
     **kwargs: Any,
 ) -> SmoothedProperty[float]:
     """Create a smoothed float property."""
-    return SmoothedProperty(func, NumberSmoother, cached, **kwargs)  # type: ignore[arg-type]
+    return SmoothedProperty(func, NumberSmoother, cached, default_value=default_value, **kwargs)  # type: ignore[arg-type]
+
+
+def smoothed_optional_float(
+    func: Callable[[Any], float | None],
+    cached: bool = True,
+    default_value: float | None = None,
+    **kwargs: Any,
+) -> SmoothedProperty[float | None]:
+    """Create a smoothed optional float property."""
+    return SmoothedProperty(func, OptionalNumberSmoother, cached, default_value=default_value, **kwargs)  # type: ignore[arg-type]

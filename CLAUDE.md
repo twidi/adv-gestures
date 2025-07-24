@@ -43,7 +43,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - `landmarks.py`: Hand landmark definitions
 
 3. **Smoothing System** (`src/adv_gestures/smoothing.py`): Sophisticated EMA-based smoothing
-   - Decorators: `@smoothed_bool`, `@smoothed_float`, `@smoothed_coord`
+   - Decorators: `@smoothed_bool`, `@smoothed_float`, `@smoothed_optional_float`, `@smoothed_coord`
    - Multiple smoother types for different data
    - Configurable time windows and smoothing factors
 
