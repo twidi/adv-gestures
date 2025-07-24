@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 import numpy as np
 
 from ..config import Config
-from ..gestures import OVERRIDABLE_DEFAULT_GESTURES, Gestures
+from ..gestures import Gestures
 from ..smoothing import (
     BoxSmoother,
     CoordSmoother,
@@ -132,11 +132,10 @@ class Hands:
                 finger_landmarks = [hand_landmarks[idx] for idx in FINGERS_LANDMARKS[finger_idx]]
                 finger.update(landmarks=finger_landmarks)
 
-            # Detect custom gestures if no default gesture was detected
+            # Detect custom gestures (always detect them, regardless of default gesture)
             custom_gestures: GestureWeights = {}
             if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
-                if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES:
-                    custom_gestures = hand.detect_gestures()
+                custom_gestures = hand.detect_gestures()
             hand.update_custom_gestures(custom_gestures)
 
 
