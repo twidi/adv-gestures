@@ -39,25 +39,38 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 2. **Models** (`src/adv_gestures/models/`): Type-safe data structures
    - `hands.py`: Hand class with finger tracking and gesture detection
    - `fingers.py`: Finger representations with landmark positions
-   - `gestures.py`: Gesture enums (both MediaPipe built-in and custom)
    - `landmarks.py`: Hand landmark definitions
 
-3. **Smoothing System** (`src/adv_gestures/smoothing.py`): Sophisticated EMA-based smoothing
+3. **Gestures** (`src/adv_gestures/gestures.py`): Gesture definitions
+   - Gesture enums (both MediaPipe built-in and custom)
+   - DEFAULT_GESTURES and CUSTOM_GESTURES definitions
+   - Gesture detection thresholds and configurations
+
+4. **Smoothing System** (`src/adv_gestures/smoothing.py`): Sophisticated EMA-based smoothing
    - Decorators: `@smoothed_bool`, `@smoothed_float`, `@smoothed_optional_float`, `@smoothed_coord`
    - Multiple smoother types for different data
    - Configurable time windows and smoothing factors
 
-4. **CLI** (`src/adv_gestures/cli.py`): Development/testing interface
-   - Camera selection and preview
-   - Real-time visualization with metrics
-   - Debug drawing overlays
+5. **CLI** (`src/adv_gestures/cli/`): Development/testing interface organized into modules
+   - `run.py`: Main gesture recognition runner with real-time visualization
+   - `check_camera.py`: Camera checking and preview functionality
+   - `tweak.py`: Configuration tweaking interface
+   - `common.py`: Shared CLI utilities (camera selection, config loading)
    - Config file support via `--config` option
 
-5. **Configuration** (`src/adv_gestures/config.py`): Pydantic-based configuration
+6. **Configuration** (`src/adv_gestures/config.py`): Pydantic-based configuration
    - JSON-based configuration files
    - Default config location: user config directory via platformdirs
    - Nested configuration for hands, fingers, and gesture detection thresholds
    - CLI configuration options: camera filter, mirror mode, and capture size
+
+7. **MediaPipe Wrapper** (`src/adv_gestures/mediapipe.py`): Centralized MediaPipe imports
+   - Single import point for all MediaPipe components
+   - Simplifies imports across the codebase
+
+8. **Camera Management** (`src/adv_gestures/cameras.py`): Camera-related functionality
+   - Camera enumeration and selection
+   - Linux-specific camera handling via `linuxpy`
 
 ### Key Patterns
 
@@ -84,7 +97,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Lazy initialization of smoothers
    - Optional GPU acceleration via MediaPipe
 
-4. **Linux-specific Features**: Uses `linuxpy` for camera enumeration
+4. **Linux-specific Features**: Camera handling is in `cameras.py` module
 
 ## Code Style Requirements
 

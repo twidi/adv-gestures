@@ -183,18 +183,24 @@ make pretty lint  # Format and lint code
 adv-gestures/
 ├── src/adv_gestures/
 │   ├── __init__.py      # Package initialization
+│   ├── __main__.py      # Entry point for python -m adv_gestures
 │   ├── cameras.py       # Camera enumeration and management
-│   ├── cli.py           # CLI application
 │   ├── config.py        # Configuration management
 │   ├── drawing.py       # Visualization and drawing utilities
-│   ├── mediapipe.py     # MediaPipe wrapper and utilities
+│   ├── gestures.py      # Gesture definitions and enums
+│   ├── mediapipe.py     # MediaPipe wrapper and imports
 │   ├── recognizer.py    # Core recognition engine
 │   ├── smoothing.py     # Smoothing decorators
+│   ├── cli/             # CLI interface modules
+│   │   ├── __init__.py  # CLI package initialization
+│   │   ├── check_camera.py  # Camera checking functionality
+│   │   ├── common.py    # Shared CLI utilities
+│   │   ├── run.py       # Main gesture recognition runner
+│   │   └── tweak.py     # Configuration tweaking interface
 │   └── models/          # Data models
 │       ├── __init__.py  # Models package initialization
 │       ├── hands.py     # Hand representation
 │       ├── fingers.py   # Finger tracking
-│       ├── gestures.py  # Gesture definitions
 │       └── landmarks.py # MediaPipe landmarks
 ├── Makefile            # Development commands
 └── pyproject.toml      # Project configuration
