@@ -136,16 +136,14 @@ class Recognizer:
             if self.last_result.timestamp == last_recognized_timestamp:
                 continue
 
-            # Update hands and increment recognized frames counter
-            hands.update_hands(self, mp_image.width, mp_image.height)
+            # Calculate metrics first
             recognized_frames_count += 1
-            last_recognized_timestamp = self.last_result.timestamp
-
-            # Calculate metrics
             iterator_fps = frames_count / elapsed_time if elapsed_time > 0 else 0
             recognition_fps = recognized_frames_count / elapsed_time if elapsed_time > 0 else 0
             latency = (current_time - start_time) - self.last_result.timestamp
+            last_recognized_timestamp = self.last_result.timestamp
 
+            # Create stream info before updating hands
             stream_info = StreamInfo(
                 frames_count=frames_count,
                 recognized_frames_count=recognized_frames_count,
@@ -155,6 +153,9 @@ class Recognizer:
                 height=mp_image.height,
                 width=mp_image.width,
             )
+
+            # Update hands with stream info
+            hands.update_hands(self, stream_info)
 
             yield frame, stream_info, self.last_result
 

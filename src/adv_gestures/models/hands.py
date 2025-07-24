@@ -34,7 +34,7 @@ from .fingers import (
 from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 
 if TYPE_CHECKING:
-    from ..recognizer import Recognizer
+    from ..recognizer import Recognizer, StreamInfo
 
 
 class Handedness(str, Enum):
@@ -67,6 +67,7 @@ class Hands:
     def __init__(self, config: Config) -> None:
         """Initialize both hands."""
         self.config = config
+        self.stream_info: StreamInfo | None = None
         self.left: Hand = Hand(handedness=Handedness.LEFT, config=config)
         self.right: Hand = Hand(handedness=Handedness.RIGHT, config=config)
 
@@ -75,8 +76,10 @@ class Hands:
         self.left.reset()
         self.right.reset()
 
-    def update_hands(self, recognizer: Recognizer, width: int, height: int) -> None:
+    def update_hands(self, recognizer: Recognizer, stream_info: StreamInfo | None = None) -> None:
         """Update the hands object with new gesture recognition results."""
+        # Store the stream info
+        self.stream_info = stream_info
 
         # If the recognizer didn't run yet, do nothing
         if not (result := recognizer.last_result):
@@ -118,6 +121,7 @@ class Hands:
                 wrist_landmark=hand_landmarks[HandLandmark.WRIST],
                 default_gesture=gesture_type,
                 all_landmarks=hand_landmarks,
+                stream_info=stream_info,
             )
 
             # Update palm
@@ -163,6 +167,7 @@ class Hand(SmoothedBase):
         self.handedness = handedness
 
         self.is_visible: bool = False
+        self.stream_info: StreamInfo | None = None
         self.palm: Palm = Palm(hand=self, config=config)
 
         self.thumb = Thumb(hand=self, config=config)
@@ -218,6 +223,7 @@ class Hand(SmoothedBase):
         wrist_landmark: Landmark | None,
         default_gesture: Gestures | None,
         all_landmarks: list[Landmark] | None = None,
+        stream_info: StreamInfo | None = None,
     ) -> None:
         """Update the hand with new data from MediaPipe.
 
@@ -227,6 +233,7 @@ class Hand(SmoothedBase):
         self.is_visible = is_visible
         self.wrist_landmark = wrist_landmark
         self._raw_default_gesture = default_gesture
+        self.stream_info = stream_info
         if all_landmarks is not None:
             self.all_landmarks = all_landmarks
 
@@ -254,11 +261,12 @@ class Hand(SmoothedBase):
         pinky_mcp = self.palm.landmarks[-1]
 
         # Create vectors from wrist to thumb MCP and wrist to pinky MCP
-        # Note: MediaPipe uses normalized coordinates where x,y are in [0,1] and z represents depth
+        # Note: x_normalized and y_normalized are MediaPipe normalized coordinates in the range [0,1]
+        # and z_normalized represents depth
         vec1 = np.array(
             [
-                thumb_mcp.x - wrist.x,
-                thumb_mcp.y - wrist.y,
+                thumb_mcp.x_normalized - wrist.x_normalized,
+                thumb_mcp.y_normalized - wrist.y_normalized,
                 (
                     (thumb_mcp.z_normalized - wrist.z_normalized)
                     if thumb_mcp.z_normalized is not None and wrist.z_normalized is not None
@@ -269,8 +277,8 @@ class Hand(SmoothedBase):
 
         vec2 = np.array(
             [
-                pinky_mcp.x - wrist.x,
-                pinky_mcp.y - wrist.y,
+                pinky_mcp.x_normalized - wrist.x_normalized,
+                pinky_mcp.y_normalized - wrist.y_normalized,
                 (
                     (pinky_mcp.z_normalized - wrist.z_normalized)
                     if pinky_mcp.z_normalized is not None and wrist.z_normalized is not None
@@ -291,8 +299,7 @@ class Hand(SmoothedBase):
 
     def _calc_main_direction(self) -> tuple[float, float] | None:
         """Calculate the main direction of the hand in the x/y plane.
-        Returns a normalized vector (dx, dy) pointing from wrist to middle finger centroid.
-        Note: This returns the direction in normalized coordinate space (0-1)."""
+        Returns a normalized vector (dx, dy) pointing from wrist to middle finger centroid."""
         if not self.wrist_landmark or not self.fingers or len(self.fingers) <= FingerIndex.MIDDLE:
             return None
 
@@ -541,6 +548,32 @@ class Hand(SmoothedBase):
         min_y = min(thumb_tip[1], index_tip[1])
         max_y = max(thumb_tip[1], index_tip[1])
 
+        # Add padding based on frame dimensions and orientation
+        if self.stream_info:
+            if self.stream_info.width > self.stream_info.height:
+                # Landscape: 2% width, 1% height
+                padding_x = self.stream_info.width * 0.02
+                padding_y = self.stream_info.height * 0.01
+            elif self.stream_info.width < self.stream_info.height:
+                # Portrait: 1% width, 2% height
+                padding_x = self.stream_info.width * 0.01
+                padding_y = self.stream_info.height * 0.02
+            else:
+                # Square: 1.5% for both
+                padding_x = self.stream_info.width * 0.015
+                padding_y = self.stream_info.height * 0.015
+
+            min_x -= padding_x
+            max_x += padding_x
+            min_y -= padding_y
+            max_y += padding_y
+
+            # Ensure the box stays within frame boundaries
+            min_x = max(0, min_x)
+            min_y = max(0, min_y)
+            max_x = min(self.stream_info.width, max_x)
+            max_y = min(self.stream_info.height, max_y)
+
         return Box(min_x, min_y, max_x, max_y)
 
     pinch_box = SmoothedProperty(_calc_pinch_box, BoxSmoother)
@@ -676,7 +709,6 @@ class Hand(SmoothedBase):
         if (
             not self.is_gesture_disabled(Gestures.SPOCK)
             and self.is_facing_camera
-            and thumb.is_fully_bent
             and index.is_straight
             and middle.is_straight
             and ring.is_straight
