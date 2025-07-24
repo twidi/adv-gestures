@@ -16,6 +16,7 @@ from ..smoothing import (
     SmoothedBase,
     SmoothedProperty,
     smoothed_bool,
+    smoothed_optional_float,
 )
 from .fingers import (
     AnyFinger,
@@ -140,11 +141,14 @@ class Hand(SmoothedBase):
         "bounding_box",
         "pinch_box",
         # All finger pairs (excluding thumb combinations which use touches_thumb)
+        "index_middle_spread_angle",
         "index_middle_touching",
         "index_ring_touching",
         "index_pinky_touching",
+        "middle_ring_spread_angle",
         "middle_ring_touching",
         "middle_pinky_touching",
+        "ring_pinky_spread_angle",
         "ring_pinky_touching",
     )
 
@@ -307,6 +311,82 @@ class Hand(SmoothedBase):
 
     main_direction = SmoothedProperty(_calc_main_direction, CoordSmoother)
 
+    def get_finger_spread_angle(
+        self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger
+    ) -> float | None:
+        """Calculate the spread angle between two fingers.
+
+        Returns:
+            - Positive angle: fingers are spreading apart
+            - Zero: fingers are parallel
+            - Negative angle: fingers are crossing/overlapping
+            - None: if angle cannot be calculated
+        """
+        if isinstance(finger1, Finger):
+            finger1 = finger1.index
+        if isinstance(finger2, Finger):
+            finger2 = finger2.index
+
+        # Get the finger objects
+        finger1_obj = self.fingers[finger1]
+        finger2_obj = self.fingers[finger2]
+
+        # We only calculate angles for fingers that are not fully bent
+        if finger1_obj.is_not_straight_at_all or finger2_obj.is_not_straight_at_all:
+            return None
+
+        # Get directions
+        dir1 = finger1_obj.straight_direction
+        dir2 = finger2_obj.straight_direction
+
+        if dir1 is None or dir2 is None:
+            return None
+
+        # Get base positions
+        base1 = finger1_obj.start_point
+        base2 = finger2_obj.start_point
+
+        if not base1 or not base2:
+            return None
+
+        # Calculate angle between directions using dot product
+        dot_product = dir1[0] * dir2[0] + dir1[1] * dir2[1]
+        # Clamp to [-1, 1] to handle numerical errors
+        dot_product = max(-1.0, min(1.0, dot_product))
+
+        # Calculate if fingers diverge from a common origin (forming a V)
+        # Using parametric line equations to find intersection
+        # Line 1: base1 + t1 * dir1
+        # Line 2: base2 + t2 * dir2
+
+        # Cross product between finger directions
+        cross_product = dir1[0] * dir2[1] - dir1[1] * dir2[0]
+
+        # Calculate angle in degrees (always positive from arccos)
+        angle_rad = np.arccos(dot_product)
+        angle_deg = np.degrees(angle_rad)
+
+        # If directions are parallel (cross product ≈ 0), angle is 0
+        if abs(cross_product) < 0.001:
+            return 0.0
+
+        # Calculate intersection point of the two finger lines
+        # We solve: base1 + t1 * dir1 = base2 + t2 * dir2
+        dx = base2[0] - base1[0]
+        dy = base2[1] - base1[1]
+
+        # Calculate t1 (parameter for line 1)
+        t1 = (dx * dir2[1] - dy * dir2[0]) / cross_product
+
+        # If t1 < 0, intersection is behind the base (fingers form a V, spreading)
+        # If t1 > 0, intersection is ahead of the base (fingers converging)
+        if t1 < 0:
+            # Fingers spreading apart (V shape)
+            return float(angle_deg)
+        else:
+            # Fingers converging or crossing
+            return float(-angle_deg)
+
     def are_fingers_touching(self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
 
@@ -323,89 +403,27 @@ class Hand(SmoothedBase):
             return self._finger_touch_cache[key]
 
         # Check if fingers are adjacent and get their max angle threshold
-        max_angle: float
+        max_angle: float | None = None
+        angle_deg: float | None = None
         if key == (FingerIndex.INDEX, FingerIndex.MIDDLE):
             max_angle = self.config.hands.adjacent_fingers.index_middle_max_angle_degrees
+            angle_deg = self.index_middle_spread_angle
         elif key == (FingerIndex.MIDDLE, FingerIndex.RING):
             max_angle = self.config.hands.adjacent_fingers.middle_ring_max_angle_degrees
+            angle_deg = self.middle_ring_spread_angle
         elif key == (FingerIndex.RING, FingerIndex.PINKY):
             max_angle = self.config.hands.adjacent_fingers.ring_pinky_max_angle_degrees
-        else:
+            angle_deg = self.ring_pinky_spread_angle
+
+        if angle_deg is None or max_angle is None:
             self._finger_touch_cache[key] = False
             self._finger_touch_cache[(finger2, finger1)] = False
             return False
-
-        # Get the finger objects directly by index
-        finger1_obj = self.fingers[finger1]
-        finger2_obj = self.fingers[finger2]
-
-        # Check if both fingers are straight
-        if finger1_obj.is_not_straight_at_all or finger2_obj.is_not_straight_at_all:
-            self._finger_touch_cache[key] = False
-            self._finger_touch_cache[(finger2, finger1)] = False
-            return False
-
-        # Check if directions are similar
-        dir1 = finger1_obj.straight_direction
-        dir2 = finger2_obj.straight_direction
-
-        if dir1 is None or dir2 is None:
-            self._finger_touch_cache[key] = False
-            self._finger_touch_cache[(finger2, finger1)] = False
-            return False
-
-        # Calculate angle between directions using dot product
-        dot_product = dir1[0] * dir2[0] + dir1[1] * dir2[1]
-        # Clamp to [-1, 1] to handle numerical errors
-        dot_product = max(-1.0, min(1.0, dot_product))
-
-        # Calculate angle in degrees
-        angle_rad = np.arccos(dot_product)
-        angle_deg = np.degrees(angle_rad)
 
         # Check if angle is within the threshold
+        # Fingers are touching if spread angle is less than or equal to threshold
+        # (negative angles mean crossing, which definitely counts as touching)
         result = angle_deg <= max_angle
-
-        # If not parallel enough, check if fingers are converging
-        if not result and angle_deg < 5:
-            # Get finger start and end points
-            start1 = finger1_obj.start_point
-            end1 = finger1_obj.end_point
-            start2 = finger2_obj.start_point
-            end2 = finger2_obj.end_point
-
-            if start1 and end1 and start2 and end2:
-                # Check if the lines are converging (intersecting ahead of the fingertips)
-                # Using parametric line equations: P = P0 + t * d
-                # Line 1: P1 = start1 + t1 * dir1
-                # Line 2: P2 = start2 + t2 * dir2
-
-                # Calculate the intersection point parameter t
-                # We need to solve: start1 + t1 * dir1 = start2 + t2 * dir2
-                dx1, dy1 = dir1
-                dx2, dy2 = dir2
-                x1, y1 = start1
-                x2, y2 = start2
-
-                # Determinant of the direction matrix
-                det = dx1 * dy2 - dy1 * dx2
-
-                if abs(det) > 0.001:  # Lines are not parallel
-                    # Solve for t1 and t2 (in normalized direction units)
-                    t1 = ((x2 - x1) * dy2 - (y2 - y1) * dx2) / det
-                    t2 = ((x2 - x1) * dy1 - (y2 - y1) * dx1) / det
-
-                    # Calculate actual finger lengths
-                    finger1_length = sqrt((end1[0] - start1[0]) ** 2 + (end1[1] - start1[1]) ** 2)
-                    finger2_length = sqrt((end2[0] - start2[0]) ** 2 + (end2[1] - start2[1]) ** 2)
-
-                    # Normalize t values by finger lengths to get position along finger
-                    # t_normalized = 0 at base, = 1 at tip, > 1 beyond tip
-                    t1_normalized = t1 / finger1_length if finger1_length > 0 else 0
-                    t2_normalized = t2 / finger2_length if finger2_length > 0 else 0
-
-                    # Check if intersection is ahead of both fingertips
-                    result = t1_normalized > 1.0 and t2_normalized > 1.0
 
         # Cache and return result
         self._finger_touch_cache[key] = result
@@ -426,17 +444,35 @@ class Hand(SmoothedBase):
 
     all_fingers_touching = smoothed_bool(_calc_all_fingers_touching)
 
+    def _calc_index_middle_spread_angle(self) -> float | None:
+        """Calculate the spread angle between index and middle fingers."""
+        return self.get_finger_spread_angle(FingerIndex.INDEX, FingerIndex.MIDDLE)
+
+    index_middle_spread_angle = smoothed_optional_float(_calc_index_middle_spread_angle)
+
     def _calc_index_middle_touching(self) -> bool:
         """Check if index and middle fingers are touching."""
         return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.MIDDLE)
 
     index_middle_touching = smoothed_bool(_calc_index_middle_touching)
 
+    def _calc_middle_ring_spread_angle(self) -> float | None:
+        """Calculate the spread angle between middle and ring fingers."""
+        return self.get_finger_spread_angle(FingerIndex.MIDDLE, FingerIndex.RING)
+
+    middle_ring_spread_angle = smoothed_optional_float(_calc_middle_ring_spread_angle)
+
     def _calc_middle_ring_touching(self) -> bool:
         """Check if middle and ring fingers are touching."""
         return self.are_fingers_touching(FingerIndex.MIDDLE, FingerIndex.RING)
 
     middle_ring_touching = smoothed_bool(_calc_middle_ring_touching)
+
+    def _calc_ring_pinky_spread_angle(self) -> float | None:
+        """Calculate the spread angle between ring and pinky fingers."""
+        return self.get_finger_spread_angle(FingerIndex.RING, FingerIndex.PINKY)
+
+    ring_pinky_spread_angle = smoothed_optional_float(_calc_ring_pinky_spread_angle)
 
     def _calc_ring_pinky_touching(self) -> bool:
         """Check if ring and pinky fingers are touching."""
