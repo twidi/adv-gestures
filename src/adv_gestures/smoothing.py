@@ -303,12 +303,15 @@ class MultiGestureSmoother:
         for gesture, smoother in self.smoothers.items():
             # Weight is 1.0 if detected, 0.0 otherwise
             weight = gesture_weights.get(gesture, 0.0)
-            smoothed_weight = smoother.update(weight)
+            smoother.update(weight)
+
+            # Calculate weight as sum of values in history
+            history_sum = sum(tv.value for tv in smoother.history if tv.value is not None)
 
             # Include any gesture with weight > 0
-            if smoothed_weight > 0:
-                smoothed_weights[gesture] = smoothed_weight
-                max_weight = max(max_weight, smoothed_weight)
+            if history_sum > 0:
+                smoothed_weights[gesture] = history_sum
+                max_weight = max(max_weight, history_sum)
 
         # Normalize weights to [0, 1] based on max weight
         if max_weight > 0:
