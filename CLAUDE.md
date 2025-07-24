@@ -87,10 +87,12 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Bounding boxes use pixel coordinates
 
 2. **Gesture Detection Flow**:
-   - MediaPipe detects basic gestures
-   - Custom gestures detected via finger positions
+   - MediaPipe detects basic gestures (single gesture)
+   - Custom gestures detected via finger positions (multiple simultaneous)
+   - All detected gestures are tracked with individual stability weights and durations
    - Override mechanism for incorrect MediaPipe detections
-   - All values smoothed for stability
+   - Each gesture smoothed independently for stability
+   - Gesture weights normalized with strongest gesture at 1.0
 
 3. **Performance Considerations**:
    - Smoothed properties cached per frame

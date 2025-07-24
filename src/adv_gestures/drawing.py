@@ -128,7 +128,7 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
     # Draw pinch box with dotted lines in different color
     if hand.pinch_box:
         # Red for PINCH_TOUCH, yellow for regular PINCH
-        if hand.gesture == Gestures.PINCH_TOUCH:
+        if Gestures.PINCH_TOUCH in hand.gestures:
             color = (0, 0, 255)  # Red for pinch touch
         else:
             color = (0, 255, 255)  # Yellow for regular pinch
@@ -321,70 +321,175 @@ def draw_hands_marks_and_info(
     latency_text = f"Latency: {latency_ms:.1f}ms"
     cv2.putText(frame, latency_text, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
-    # First, prepare all text to determine footer height
-    texts = []
-    line_height = 40
+    # Prepare text lines for each hand
+    line_height = 25  # Reduced line height for more compact display
+    header_height = 30  # Height for the hand header
     padding = 15
 
-    # Count visible hands to calculate positions from bottom
-    visible_hands = []
-    for hand in [hands.left, hands.right]:
-        if hand:
-            visible_hands.append(hand)
-
-    # Calculate text positions from bottom up
     frame_height = frame.shape[0]
-    for i, hand in enumerate(visible_hands):
-        handedness_str = hand.handedness.name if hand.handedness else "Unknown"
-        facing_str = "PALM" if hand.is_facing_camera else "BACK"
+    frame_width = frame.shape[1]
 
-        text = f"{handedness_str} hand showing {facing_str}"
+    # Build text lines for left and right hands separately
+    left_lines = []
+    right_lines = []
 
-        # Add gesture information if available
-        if hand.gesture:
-            # Show the final gesture (smoothed)
-            text += f" - Gesture: {hand.gesture}"
+    # Process left hand
+    if hands.left:
+        handedness_str = "LEFT"
+        facing_str = "PALM" if hands.left.is_facing_camera else "BACK"
 
-            # Add gesture duration
-            if hand.gesture_duration > 0:
-                text += f" ({hand.gesture_duration:.1f}s)"
+        # Hand header line
+        header_text = f"{handedness_str} hand showing {facing_str}"
+        left_lines.append((header_text, "header"))
 
-            # Show custom and default gestures with durations
-            details = []
+        # Show all active gestures with weights and durations
+        if hands.left.gestures:
+            gestures_list = sorted(hands.left.gestures.items(), key=lambda x: x[1], reverse=True)
+            durations = hands.left.gestures_durations
 
-            # Custom gesture info
-            if hand.custom_gesture:
-                custom_text = f"custom: {hand.custom_gesture}"
-                if hand.custom_gesture_duration > 0:
-                    custom_text += f" ({hand.custom_gesture_duration:.1f}s)"
-                details.append(custom_text)
+            for gesture, weight in gestures_list:
+                gesture_text = f"  {gesture.name}: {weight:.2f}"
+                if gesture in durations:
+                    gesture_text += f" ({durations[gesture]:.1f}s)"
 
-            # Default gesture info
-            if hand.default_gesture:
-                default_text = f"default: {hand.default_gesture}"
-                if hand.default_gesture_duration > 0:
-                    default_text += f" ({hand.default_gesture_duration:.1f}s)"
-                details.append(default_text)
+                # Add source indicator (custom/default)
+                source_indicators = []
+                if gesture in hands.left.custom_gestures:
+                    source_indicators.append("custom")
+                if gesture == hands.left.default_gesture:
+                    source_indicators.append("default")
+                if source_indicators:
+                    gesture_text += f" [{'/'.join(source_indicators)}]"
 
-            if details:
-                text += f" | {' | '.join(details)}"
+                left_lines.append((gesture_text, "gesture"))
+        else:
+            left_lines.append(("  No gestures detected", "gesture"))
 
-        # Position from bottom: padding + line_height * (total_hands - current_index)
-        y_pos = frame_height - padding - (line_height * (len(visible_hands) - i - 1))
-        texts.append((text, y_pos))
+    # Process right hand
+    if hands.right:
+        handedness_str = "RIGHT"
+        facing_str = "PALM" if hands.right.is_facing_camera else "BACK"
 
-    # Add semi-transparent black footer based on actual text height
-    if texts:
-        footer_height = line_height * len(visible_hands) + padding
+        # Hand header line
+        header_text = f"{handedness_str} hand showing {facing_str}"
+        right_lines.append((header_text, "header"))
+
+        # Show all active gestures with weights and durations
+        if hands.right.gestures:
+            gestures_list = sorted(hands.right.gestures.items(), key=lambda x: x[1], reverse=True)
+            durations = hands.right.gestures_durations
+
+            for gesture, weight in gestures_list:
+                gesture_text = f"  {gesture.name}: {weight:.2f}"
+                if gesture in durations:
+                    gesture_text += f" ({durations[gesture]:.1f}s)"
+
+                # Add source indicator (custom/default)
+                source_indicators = []
+                if gesture in hands.right.custom_gestures:
+                    source_indicators.append("custom")
+                if gesture == hands.right.default_gesture:
+                    source_indicators.append("default")
+                if source_indicators:
+                    gesture_text += f" [{'/'.join(source_indicators)}]"
+
+                right_lines.append((gesture_text, "gesture"))
+        else:
+            right_lines.append(("  No gestures detected", "gesture"))
+
+    # Calculate footer dimensions based on max lines
+    if left_lines or right_lines:
+        # Calculate height needed for each side
+        left_height = padding * 2
+        right_height = padding * 2
+
+        for _, line_type in left_lines:
+            if line_type == "header":
+                left_height += header_height
+            elif line_type == "gesture":
+                left_height += line_height
+
+        for _, line_type in right_lines:
+            if line_type == "header":
+                right_height += header_height
+            elif line_type == "gesture":
+                right_height += line_height
+
+        # Use the maximum height
+        footer_height = max(left_height, right_height)
         footer_y_start = frame_height - footer_height
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, footer_y_start), (frame.shape[1], frame_height), (0, 0, 0), -1)
-        frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
 
-        # Draw text with anti-aliasing
-        for text, y_pos in texts:
-            position = (10, y_pos)
-            # Draw with LINE_AA for anti-aliasing
-            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        # Add semi-transparent black footer
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, footer_y_start), (frame_width, frame_height), (0, 0, 0), -1)
+        frame = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)  # Slightly darker overlay
+
+        # Draw left hand text on the left side
+        if left_lines:
+            y_pos = footer_y_start + padding
+            for text, line_type in left_lines:
+                if line_type == "header":
+                    # Header with larger font
+                    cv2.putText(
+                        frame,
+                        text,
+                        (10, y_pos + header_height - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    y_pos += header_height
+                elif line_type == "gesture":
+                    # Gesture info with smaller font
+                    cv2.putText(
+                        frame,
+                        text,
+                        (10, y_pos + line_height - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (200, 200, 200),
+                        1,
+                        cv2.LINE_AA,
+                    )
+                    y_pos += line_height
+
+        # Draw right hand text on the right side
+        if right_lines:
+            y_pos = footer_y_start + padding
+            for text, line_type in right_lines:
+                if line_type == "header":
+                    # Calculate text width to right-align
+                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                    x_pos = frame_width - text_size[0] - 10
+
+                    cv2.putText(
+                        frame,
+                        text,
+                        (x_pos, y_pos + header_height - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    y_pos += header_height
+                elif line_type == "gesture":
+                    # Calculate text width to right-align
+                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
+                    x_pos = frame_width - text_size[0] - 10
+
+                    cv2.putText(
+                        frame,
+                        text,
+                        (x_pos, y_pos + line_height - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (200, 200, 200),
+                        1,
+                        cv2.LINE_AA,
+                    )
+                    y_pos += line_height
 
     return frame

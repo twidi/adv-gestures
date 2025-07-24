@@ -33,5 +33,5 @@ DEFAULT_GESTURES = {
     Gestures.VICTORY,
     Gestures.LOVE,
 }
-CUSTOM_GESTURES = {gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES}
-OVERRIDABLE_DEFAULT_GESTURES = {Gestures.OPEN_PALM}
+OVERRIDABLE_DEFAULT_GESTURES = {Gestures.VICTORY}
+CUSTOM_GESTURES = {gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES} | OVERRIDABLE_DEFAULT_GESTURES

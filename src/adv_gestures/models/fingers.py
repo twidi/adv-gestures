@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar
 import numpy as np
 
 from ..config import BaseFingerConfig, Config, FingerConfig, ThumbConfig
-from ..gestures import Gestures
 from ..smoothing import (
     CoordSmoother,
     SmoothedBase,
@@ -107,19 +106,6 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
     def _calc_is_straight(self) -> bool:
         """Check if the finger is straight based on the straightness score."""
-        # Handle gesture-based shortcuts first
-        if self.hand.gesture == Gestures.CLOSED_FIST:
-            return False
-        elif self.hand.gesture == Gestures.OPEN_PALM:
-            if self.index != FingerIndex.THUMB:
-                return True
-        elif self.hand.gesture == Gestures.POINTING_UP:
-            if self.index == FingerIndex.INDEX:
-                return True
-        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
-            return self.index == FingerIndex.THUMB
-        elif self.hand.gesture == Gestures.VICTORY:
-            return self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
         # Use the straightness score with strict threshold from finger config
         return self.straightness_score >= self.finger_config.straightness.straight_threshold
@@ -128,21 +114,6 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
     def _calc_is_nearly_straight(self) -> bool:
         """Check if the finger is nearly straight based on the straightness score."""
-        # Handle gesture-based shortcuts first (same as is_straight for consistency)
-        if self.hand.gesture == Gestures.CLOSED_FIST:
-            return False
-        elif self.hand.gesture == Gestures.OPEN_PALM:
-            if self.index != FingerIndex.THUMB:
-                return False
-        elif self.hand.gesture == Gestures.POINTING_UP:
-            if self.index == FingerIndex.INDEX:
-                return False
-        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
-            if self.index == FingerIndex.THUMB:
-                return False
-        elif self.hand.gesture == Gestures.VICTORY:
-            if self.index in (FingerIndex.INDEX, FingerIndex.MIDDLE):
-                return False
 
         # Use the straightness score with relaxed threshold from finger config
         nearly_threshold = self.finger_config.straightness.nearly_straight_threshold
@@ -269,19 +240,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
     def _calc_is_fully_bent(self) -> bool:
         """Check if the finger is fully bent based on fold angle threshold."""
-        # Check gesture-based shortcuts first
-        if self.hand.gesture == Gestures.CLOSED_FIST:
-            return True
-        elif self.hand.gesture == Gestures.OPEN_PALM:
-            return False
-        elif self.hand.gesture == Gestures.POINTING_UP:
-            return self.index != FingerIndex.INDEX
-        elif self.hand.gesture in (Gestures.THUMB_UP, Gestures.THUMB_DOWN):
-            return self.index != FingerIndex.THUMB
-        elif self.hand.gesture == Gestures.VICTORY:
-            return self.index not in (FingerIndex.INDEX, FingerIndex.MIDDLE)
 
-        # Fall back to fold angle check
         if self.fold_angle is None:
             return True
 

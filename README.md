@@ -112,9 +112,14 @@ with Recognizer("gesture_recognizer.task") as recognizer:
         for frame, stream_info, result in recognizer.handle_opencv_capture(cap, hands):
             # Check detected gestures
             for hand in hands:
-                if hand.gesture == Gestures.VICTORY:
+                # Access all detected gestures with stability weights
+                for gesture, weight in hand.gestures.items():
+                    duration = hand.gestures_durations.get(gesture, 0)
+                    print(f"{gesture}: weight={weight:.2f}, duration={duration:.1f}s")
+
+                if Gestures.VICTORY in hand.gestures:
                     print("Victory/Peace sign detected!")
-                elif hand.gesture == Gestures.THUMB_UP:
+                elif Gestures.THUMB_UP in hand.gestures:
                     print("Thumbs up!")
             
             # Display frame (optional)
@@ -148,6 +153,14 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `PINCH_TOUCH` - Pinch + index and thumb touching
 - `GUN` - Gun gesture
 - `FINGER_GUN` - Finger gun (without middle finger)
+
+## Multiple Gesture Detection
+
+The library supports detecting multiple gestures simultaneously. This is useful when gestures overlap or when you want to track gesture combinations.
+
+- Each detected gesture has a weight between 0.0 and 1.0
+- Weights are normalized so the strongest gesture always has weight 1.0
+- Weights indicate stability over time
 
 ## Architecture
 

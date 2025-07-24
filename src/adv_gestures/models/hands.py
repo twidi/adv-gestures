@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from functools import cached_property
 from math import sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
@@ -8,11 +9,13 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 import numpy as np
 
 from ..config import Config
-from ..gestures import CUSTOM_GESTURES, OVERRIDABLE_DEFAULT_GESTURES, Gestures
+from ..gestures import OVERRIDABLE_DEFAULT_GESTURES, Gestures
 from ..smoothing import (
     BoxSmoother,
     CoordSmoother,
     GestureSmoother,
+    GestureWeights,
+    MultiGestureSmoother,
     SmoothedBase,
     SmoothedProperty,
     smoothed_bool,
@@ -126,11 +129,11 @@ class Hands:
                 finger.update(landmarks=finger_landmarks)
 
             # Detect custom gestures if no default gesture was detected
-            custom_gesture = None
+            custom_gestures: GestureWeights = {}
             if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
                 if gesture_type is None or gesture_type in OVERRIDABLE_DEFAULT_GESTURES:
-                    custom_gesture = hand.detect_gesture()
-            hand.update_custom_gesture(custom_gesture)
+                    custom_gestures = hand.detect_gestures()
+            hand.update_custom_gestures(custom_gestures)
 
 
 class Hand(SmoothedBase):
@@ -149,6 +152,9 @@ class Hand(SmoothedBase):
         "middle_ring_touching",
         "ring_pinky_spread_angle",
         "ring_pinky_touching",
+        # gestures durations
+        "gestures_durations",
+        "custom_gestures_durations",
     )
 
     def __init__(self, handedness: Handedness, config: Config) -> None:
@@ -174,15 +180,15 @@ class Hand(SmoothedBase):
 
         self.wrist_landmark: Landmark | None = None
         self._raw_default_gesture: Gestures | None = None
-        self._raw_custom_gesture: Gestures | None = None
+        self._raw_custom_gestures: GestureWeights = {}
         self._finger_touch_cache: dict[tuple[FingerIndex, FingerIndex], bool] = {}
         self.all_landmarks: list[Landmark] = []
         self._default_gesture_start_time: float | None = None
-        self._custom_gesture_start_time: float | None = None
-        self._gesture_start_time: float | None = None
         self._last_default_gesture: Gestures | None = None
-        self._last_custom_gesture: Gestures | None = None
-        self._last_gesture: Gestures | None = None
+        self._custom_gestures_start_times: dict[Gestures, float] = {}
+        self._gestures_start_times: dict[Gestures, float] = {}
+        self._last_custom_gestures: set[Gestures] = set()
+        self._last_gestures: set[Gestures] = set()
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
@@ -224,9 +230,9 @@ class Hand(SmoothedBase):
         if all_landmarks is not None:
             self.all_landmarks = all_landmarks
 
-    def update_custom_gesture(self, custom_gesture: Gestures | None) -> None:
-        """Update the custom gesture after detection."""
-        self._raw_custom_gesture = custom_gesture
+    def update_custom_gestures(self, custom_gestures: GestureWeights) -> None:
+        """Update the custom gestures after detection."""
+        self._raw_custom_gestures = custom_gestures
 
     def __bool__(self) -> bool:
         """Check if the hand is visible and has a valid handedness."""
@@ -517,7 +523,9 @@ class Hand(SmoothedBase):
     def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.
         Returns None if not pinching."""
-        if self.gesture not in (Gestures.PINCH, Gestures.PINCH_TOUCH):
+        # Check if PINCH or PINCH_TOUCH is in the detected gestures
+        if Gestures.PINCH not in self.gestures and Gestures.PINCH_TOUCH not in self.gestures:
+            # If no pinch gesture detected, return None
             return None
 
         # Get thumb and index finger tips
@@ -555,175 +563,204 @@ class Hand(SmoothedBase):
             return 0.0
         return time() - self._default_gesture_start_time
 
-    def _calc_custom_gesture(self) -> Gestures | None:
-        """Get the custom gesture if detected."""
-        # Track gesture changes for duration calculation
-        current = self._raw_custom_gesture
-        if current != self._last_custom_gesture:
-            self._custom_gesture_start_time = time()
-            self._last_custom_gesture = current
-        return current
+    def _calc_custom_gestures(self) -> GestureWeights:
+        """Get the custom gestures if detected."""
+        current_gestures = set(self._raw_custom_gestures.keys())
+        now = time()
 
-    custom_gesture = SmoothedProperty(_calc_custom_gesture, GestureSmoother, default_value=None)
+        # Detect new gestures
+        new_gestures = current_gestures - self._last_custom_gestures
+        for gesture in new_gestures:
+            self._custom_gestures_start_times[gesture] = now
 
-    @property
-    def custom_gesture_duration(self) -> float:
-        """Get the duration in seconds that the current custom gesture has been active."""
-        if self._custom_gesture_start_time is None:
-            return 0.0
-        return time() - self._custom_gesture_start_time
+        # Remove ended gestures
+        ended_gestures = self._last_custom_gestures - current_gestures
+        for gesture in ended_gestures:
+            self._custom_gestures_start_times.pop(gesture, None)
 
-    @property
-    def _raw_gesture(self) -> Gestures | None:
-        """Get the final raw gesture (custom if detected, otherwise default)."""
-        return self._raw_custom_gesture if self._raw_custom_gesture else self._raw_default_gesture
+        self._last_custom_gestures = current_gestures
+        return self._raw_custom_gestures
 
-    def _calc_gesture(self) -> Gestures | None:
-        """Get the final gesture for smoothing."""
-        # Track gesture changes for duration calculation
-        current = self._raw_gesture
-        if current != self._last_gesture:
-            self._gesture_start_time = time()
-            self._last_gesture = current
-        return current
+    custom_gestures = SmoothedProperty(_calc_custom_gestures, MultiGestureSmoother, default_value={})
 
-    gesture = SmoothedProperty(_calc_gesture, GestureSmoother, default_value=None)
+    def _calc_gestures(self) -> GestureWeights:
+        """Get the final gestures (custom + default)."""
+        result = self._raw_custom_gestures.copy()
 
-    @property
-    def gesture_duration(self) -> float:
-        """Get the duration in seconds that the current gesture has been active."""
-        if self._gesture_start_time is None:
-            return 0.0
-        return time() - self._gesture_start_time
+        # Add the default gesture if present
+        if self._raw_default_gesture:
+            # If no custom gestures or if default not already in custom
+            if not result or self._raw_default_gesture not in result:
+                result[self._raw_default_gesture] = 1.0
 
-    def detect_gesture(self) -> Gestures | None:
-        """Detect custom gestures.
+        # Track gesture changes
+        current_gestures = set(result.keys())
+        now = time()
+
+        # Detect new gestures
+        new_gestures = current_gestures - self._last_gestures
+        for gesture in new_gestures:
+            self._gestures_start_times[gesture] = now
+
+        # Remove ended gestures
+        ended_gestures = self._last_gestures - current_gestures
+        for gesture in ended_gestures:
+            self._gestures_start_times.pop(gesture, None)
+
+        self._last_gestures = current_gestures
+        return result
+
+    gestures = SmoothedProperty(_calc_gestures, MultiGestureSmoother, default_value={})
+
+    @cached_property
+    def gestures_durations(self) -> dict[Gestures, float]:
+        """Get the durations for all currently active gestures."""
+        now = time()
+        return {
+            gesture: now - start_time
+            for gesture, start_time in self._gestures_start_times.items()
+            if gesture in self.gestures
+        }
+
+    @cached_property
+    def custom_gestures_durations(self) -> dict[Gestures, float]:
+        """Get the durations for all currently active custom gestures."""
+        now = time()
+        return {
+            gesture: now - start_time
+            for gesture, start_time in self._custom_gestures_start_times.items()
+            if gesture in self.custom_gestures
+        }
+
+    def is_gesture_disabled(self, gesture: Gestures) -> bool:
+        return bool(getattr(self.config.hands.gestures.custom.disable, gesture.name))
+
+    def detect_gestures(self) -> GestureWeights:
+        """Detect all applicable custom gestures with weights.
 
         Returns:
-            The detected gesture or None if no custom gesture is detected
+            Dictionary of detected gestures with weight 1.0 for each
         """
+        detected: GestureWeights = {}
 
         thumb, index, middle, ring, pinky = self.thumb, self.index, self.middle, self.ring, self.pinky
 
-        # Check all custom gestures
-        for gesture in CUSTOM_GESTURES:
-            # Check if this specific gesture is disabled
-            if getattr(self.config.hands.gestures.custom.disable, gesture.name):
-                continue
+        # Check for Middle Finger gesture
+        # Middle finger is straight while index, ring, and pinky are not
+        if (
+            not self.is_gesture_disabled(Gestures.MIDDLE_FINGER)
+            and middle.is_straight
+            and index.is_not_straight_at_all
+            and ring.is_not_straight_at_all
+            and pinky.is_not_straight_at_all
+        ):
+            detected[Gestures.MIDDLE_FINGER] = 1.0
 
-            # Check for Middle Finger gesture
-            if gesture == Gestures.MIDDLE_FINGER:
-                # Middle finger is straight while index, ring, and pinky are not
-                if (
-                    middle.is_straight
-                    and index.is_not_straight_at_all
-                    and ring.is_not_straight_at_all
-                    and pinky.is_not_straight_at_all
-                ):
-                    return gesture
+        # Check for Victory gesture
+        # Index and middle fingers are straight, others are not
+        # (should be detected by default, but it's not always the case)
+        if (
+            not self.is_gesture_disabled(Gestures.VICTORY)
+            and index.is_straight
+            and middle.is_straight
+            and ring.is_not_straight_at_all
+            and pinky.is_not_straight_at_all
+            and thumb.is_fully_bent
+            and not index.is_touching(middle)
+        ):
+            detected[Gestures.VICTORY] = 1.0
 
-            elif gesture == Gestures.VICTORY:
-                # Index and middle fingers are straight, others are not
-                # (should be detected by default, but it's not always the case)
-                if (
-                    index.is_straight
-                    and middle.is_straight
-                    and ring.is_not_straight_at_all
-                    and pinky.is_not_straight_at_all
-                    and thumb.is_fully_bent
-                    and not index.is_touching(middle)
-                ):
-                    return gesture
+        # Check for Spock gesture
+        # Index + middle together, ring+pinky together, forming a V.
+        # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
+        if (
+            not self.is_gesture_disabled(Gestures.SPOCK)
+            and self.is_facing_camera
+            and thumb.is_fully_bent
+            and index.is_straight
+            and middle.is_straight
+            and ring.is_straight
+            and pinky.is_straight
+            and index.is_touching(middle)
+            and ring.is_touching(pinky)
+            and not middle.is_touching(ring)
+        ):
+            detected[Gestures.SPOCK] = 1.0
 
-            elif gesture == Gestures.SPOCK:
-                # Index + middle together, ring+pinky together, forming a V.
-                # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
-                if (
-                    self.is_facing_camera
-                    and thumb.is_fully_bent
-                    and index.is_straight
-                    and middle.is_straight
-                    and ring.is_straight
-                    and pinky.is_straight
-                    and index.is_touching(middle)
-                    and ring.is_touching(pinky)
-                    and not middle.is_touching(ring)
-                ):
-                    return gesture
+        # Check for Rock gesture
+        # Index and pinky are straight, others are not. Hand must not be facing camera.
+        if (
+            not self.is_gesture_disabled(Gestures.ROCK)
+            and not self.is_facing_camera
+            and index.is_straight
+            and pinky.is_straight
+            and not thumb.is_straight
+            and middle.is_not_straight_at_all
+            and ring.is_not_straight_at_all
+        ):
+            detected[Gestures.ROCK] = 1.0
 
-            elif gesture == Gestures.ROCK:
-                # Index and pinky are straight, others are not. Hand must not be facing camera.
-                if (
-                    not self.is_facing_camera
-                    and index.is_straight
-                    and pinky.is_straight
-                    and not thumb.is_straight
-                    and middle.is_not_straight_at_all
-                    and ring.is_not_straight_at_all
-                ):
-                    return gesture
+        # Check for OK gesture
+        # Index is touching thumb, others fingers are straight. Hand must be facing camera.
+        if (
+            not self.is_gesture_disabled(Gestures.OK)
+            and self.is_facing_camera
+            and index.tip_on_thumb
+            and middle.is_nearly_straight_or_straight
+            and ring.is_nearly_straight_or_straight
+            and pinky.is_nearly_straight_or_straight
+        ):
+            detected[Gestures.OK] = 1.0
 
-            elif gesture == Gestures.OK:
-                # Index is touching thumb, others fingers are straight. Hand must be facing camera.
-                if (
-                    self.is_facing_camera
-                    and index.tip_on_thumb
-                    and middle.is_nearly_straight_or_straight
-                    and ring.is_nearly_straight_or_straight
-                    and pinky.is_nearly_straight_or_straight
-                ):
-                    return gesture
+        # Check for Stop gesture
+        # All fingers are straight and touching each others. Thumb is ignored. Hand must be facing camera.
+        if (
+            not self.is_gesture_disabled(Gestures.STOP)
+            and self.is_facing_camera
+            and index.is_straight
+            and middle.is_straight
+            and ring.is_straight
+            and pinky.is_straight
+            and index.is_touching(middle)
+            and middle.is_touching(ring)
+            and ring.is_touching(pinky)
+        ):
+            detected[Gestures.STOP] = 1.0
 
-            elif gesture == Gestures.STOP:
-                # All fingers are straight and touching each others. Thumb is ignored. Hand must be facing camera.
-                if (
-                    self.is_facing_camera
-                    and index.is_straight
-                    and middle.is_straight
-                    and ring.is_straight
-                    and pinky.is_straight
-                    and index.is_touching(middle)
-                    and middle.is_touching(ring)
-                    and ring.is_touching(pinky)
-                ):
-                    return gesture
+        # Check for Pinch and Pinch Touch gestures
+        # Thumb is straight, fingers except index are not straight. Camera facing.
+        pinch_enabled = not self.is_gesture_disabled(Gestures.PINCH)
+        pinch_touch_enabled = not self.is_gesture_disabled(Gestures.PINCH_TOUCH)
+        if (
+            (pinch_enabled or pinch_touch_enabled)
+            and self.is_facing_camera
+            and thumb.is_nearly_straight_or_straight
+            and not middle.is_straight
+            and not ring.is_straight
+            and not pinky.is_straight
+        ):
+            if pinch_enabled:
+                detected[Gestures.PINCH] = 1.0
+            if pinch_touch_enabled and index.tip_on_thumb:
+                detected[Gestures.PINCH_TOUCH] = 1.0
 
-            elif gesture in (Gestures.PINCH, Gestures.PINCH_TOUCH):
-                # Thumb is straight, fingers except index are not straight. Camera facing.
-                if (
-                    self.is_facing_camera
-                    and thumb.is_nearly_straight_or_straight
-                    and not middle.is_straight
-                    and not ring.is_straight
-                    and not pinky.is_straight
-                    # and not index.is_fully_bent
-                ):
-                    return Gestures.PINCH_TOUCH if index.tip_on_thumb else Gestures.PINCH
+        # Check for Gun and Finger Gun gestures
+        # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.
+        gun_enabled = not self.is_gesture_disabled(Gestures.GUN)
+        finger_gun_enabled = not self.is_gesture_disabled(Gestures.FINGER_GUN)
+        if (
+            (gun_enabled or finger_gun_enabled)
+            and thumb.is_nearly_straight_or_straight
+            and index.is_nearly_straight_or_straight
+            and ring.is_not_straight_at_all
+            and pinky.is_not_straight_at_all
+        ):
+            if finger_gun_enabled:
+                detected[Gestures.FINGER_GUN] = 1.0
+            if gun_enabled and middle.is_nearly_straight_or_straight and index.is_touching(middle):
+                detected[Gestures.GUN] = 1.0
 
-            elif gesture == Gestures.GUN:
-                # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.
-                if (
-                    thumb.is_nearly_straight_or_straight
-                    and index.is_nearly_straight_or_straight
-                    and middle.is_nearly_straight_or_straight
-                    and index.is_touching(middle)
-                    and ring.is_not_straight_at_all
-                    and pinky.is_not_straight_at_all
-                ):
-                    return gesture
-
-            elif gesture == Gestures.FINGER_GUN:
-                # Same as gun but without the middle finger
-                if (
-                    thumb.is_nearly_straight_or_straight
-                    and index.is_nearly_straight_or_straight
-                    and middle.is_not_straight_at_all
-                    and ring.is_not_straight_at_all
-                    and pinky.is_not_straight_at_all
-                ):
-                    return gesture
-
-        return None
+        return detected
 
 
 class Palm(SmoothedBase):

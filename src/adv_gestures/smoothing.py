@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from time import time
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, overload
 
+from .gestures import Gestures
+
 if TYPE_CHECKING:
     from .models import Box
 
@@ -260,6 +262,63 @@ class GestureSmoother(Generic[T]):
     @property
     def raw(self) -> T | None:
         """Get the last raw (unsmoothed) gesture."""
+        return self._last_raw
+
+
+# Type alias for gesture weights
+GestureWeights = dict["Gestures", float]
+
+
+class MultiGestureSmoother:
+    """Smooths multiple gestures with confidence weights using number smoothers."""
+
+    def __init__(
+        self,
+        window: float = GESTURE_SMOOTHING_WINDOW,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
+        default_value: Gestures | None = None,
+    ):
+        self.window = window
+        self.ema_alpha = ema_alpha
+        self.smoothers: dict[Gestures, NumberSmoother] = {}
+        self._last_raw: GestureWeights = {}
+
+    def update(self, gesture_weights: GestureWeights) -> GestureWeights:
+        """Update with new gesture weights and return smoothed result."""
+        from .gestures import Gestures
+
+        self._last_raw = gesture_weights.copy()
+
+        # Create smoothers for new gestures on demand
+        for gesture in Gestures:
+            if gesture not in self.smoothers:
+                self.smoothers[gesture] = NumberSmoother(
+                    window=self.window, ema_alpha=self.ema_alpha, default_value=0.0
+                )
+
+        # Update each smoother and collect results
+        smoothed_weights = {}
+        max_weight = 0.0
+
+        for gesture, smoother in self.smoothers.items():
+            # Weight is 1.0 if detected, 0.0 otherwise
+            weight = gesture_weights.get(gesture, 0.0)
+            smoothed_weight = smoother.update(weight)
+
+            # Include any gesture with weight > 0
+            if smoothed_weight > 0:
+                smoothed_weights[gesture] = smoothed_weight
+                max_weight = max(max_weight, smoothed_weight)
+
+        # Normalize weights to [0, 1] based on max weight
+        if max_weight > 0:
+            smoothed_weights = {g: w / max_weight for g, w in smoothed_weights.items()}
+
+        return smoothed_weights
+
+    @property
+    def raw(self) -> GestureWeights:
+        """Get the last raw (unsmoothed) gesture weights."""
         return self._last_raw
 
 

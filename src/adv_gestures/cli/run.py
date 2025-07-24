@@ -48,31 +48,34 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
 
         handedness = hand.handedness.name if hand.handedness else "Unknown"
         facing = "PALM" if hand.is_facing_camera else "BACK"
-        gesture = hand.gesture if hand.gesture else "None"
 
-        # Add gesture duration to the display
-        gesture_display = f"{gesture}"
-        if hand.gesture_duration > 0:
-            gesture_display += f" ({hand.gesture_duration:.1f}s)"
+        print(f"\n{handedness} Hand - {facing}")
 
-        print(f"\n{handedness} Hand - {facing} - Gesture: {gesture_display}")
+        # Show all active gestures with weights and durations
+        if hand.gestures:
+            print("  Active gestures:")
+            gestures_list = sorted(hand.gestures.items(), key=lambda x: x[1], reverse=True)
+            durations = hand.gestures_durations
 
-        # Show custom and default gestures with durations if different from main gesture
-        gesture_details = []
-        if hand.custom_gesture and hand.custom_gesture != hand.gesture:
-            custom_text = f"custom: {hand.custom_gesture}"
-            if hand.custom_gesture_duration > 0:
-                custom_text += f" ({hand.custom_gesture_duration:.1f}s)"
-            gesture_details.append(custom_text)
+            for gesture, weight in gestures_list:
+                gesture_line = f"    {gesture.name}: weight={weight:.2f}"
 
-        if hand.default_gesture and hand.default_gesture != hand.gesture:
-            default_text = f"default: {hand.default_gesture}"
-            if hand.default_gesture_duration > 0:
-                default_text += f" ({hand.default_gesture_duration:.1f}s)"
-            gesture_details.append(default_text)
+                # Add duration if available
+                if gesture in durations:
+                    gesture_line += f", duration={durations[gesture]:.1f}s"
 
-        if gesture_details:
-            print(f"  Gesture details: {' | '.join(gesture_details)}")
+                # Add source indicators
+                sources = []
+                if gesture in hand.custom_gestures:
+                    sources.append("custom")
+                if gesture == hand.default_gesture:
+                    sources.append("default")
+                if sources:
+                    gesture_line += f" [{'/'.join(sources)}]"
+
+                print(gesture_line)
+        else:
+            print("  No gestures detected")
 
         if hand.main_direction:
             direction = f"({hand.main_direction[0]:.2f}, {hand.main_direction[1]:.2f})"
