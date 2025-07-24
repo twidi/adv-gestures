@@ -168,9 +168,7 @@ def draw_finger_marks(finger: AnyFinger, image: OpenCVImage) -> OpenCVImage:
     """Draw the finger on the image."""
     # Draw all landmarks
     for landmark in finger.landmarks:
-        x = landmark.x
-        y = landmark.y
-        cv2.circle(image, (x, y), 3, FINGER_COLORS[finger.index], -1)
+        cv2.circle(image, landmark.xy, 3, FINGER_COLORS[finger.index], -1)
 
     if not finger.start_point or not finger.end_point:
         # If no start or end point, we cannot draw the finger line
@@ -249,7 +247,7 @@ def draw_finger_marks(finger: AnyFinger, image: OpenCVImage) -> OpenCVImage:
         )
 
     # Draw red circle if this finger touches the thumb
-    if not isinstance(finger, Thumb) and finger.touches_thumb:
+    if not isinstance(finger, Thumb) and finger.tip_on_thumb:
         # Get thumb finger
         thumb = None
         for other_finger in finger.hand.fingers:

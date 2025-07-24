@@ -140,14 +140,13 @@ class Hand(SmoothedBase):
         "all_fingers_touching",
         "bounding_box",
         "pinch_box",
-        # All finger pairs (excluding thumb combinations which use touches_thumb)
+        # All adjacent finger pairs
+        "thumb_index_spread_angle",
+        "thumb_index_touching",
         "index_middle_spread_angle",
         "index_middle_touching",
-        "index_ring_touching",
-        "index_pinky_touching",
         "middle_ring_spread_angle",
         "middle_ring_touching",
-        "middle_pinky_touching",
         "ring_pinky_spread_angle",
         "ring_pinky_touching",
     )
@@ -235,13 +234,18 @@ class Hand(SmoothedBase):
 
     def _calc_is_facing_camera(self) -> bool:
         """Determine if the hand is showing its palm or back to the camera using cross product method."""
-        if not self.handedness or not self.palm or len(self.palm.landmarks) < 6 or not self.wrist_landmark:
+        if (
+            not self.handedness
+            or not self.palm
+            or len(self.palm.landmarks) < len(PALM_LANDMARKS)
+            or not self.wrist_landmark
+        ):
             return False
 
         # Get key landmarks for cross product calculation
         wrist = self.wrist_landmark
-        thumb_mcp = self.palm.landmarks[1]  # THUMB_CMC
-        pinky_mcp = self.palm.landmarks[5]  # PINKY_MCP
+        thumb_mcp = self.palm.landmarks[1]
+        pinky_mcp = self.palm.landmarks[-1]
 
         # Create vectors from wrist to thumb MCP and wrist to pinky MCP
         # Note: MediaPipe uses normalized coordinates where x,y are in [0,1] and z represents depth
@@ -331,7 +335,7 @@ class Hand(SmoothedBase):
         finger1_obj = self.fingers[finger1]
         finger2_obj = self.fingers[finger2]
 
-        # We only calculate angles for fingers that are not fully bent
+        # We only calculate angles for fingers that are at least nearly straight
         if finger1_obj.is_not_straight_at_all or finger2_obj.is_not_straight_at_all:
             return None
 
@@ -380,12 +384,7 @@ class Hand(SmoothedBase):
 
         # If t1 < 0, intersection is behind the base (fingers form a V, spreading)
         # If t1 > 0, intersection is ahead of the base (fingers converging)
-        if t1 < 0:
-            # Fingers spreading apart (V shape)
-            return float(angle_deg)
-        else:
-            # Fingers converging or crossing
-            return float(-angle_deg)
+        return float(angle_deg if t1 < 0 else -angle_deg)
 
     def are_fingers_touching(self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
@@ -405,7 +404,10 @@ class Hand(SmoothedBase):
         # Check if fingers are adjacent and get their max angle threshold
         max_angle: float | None = None
         angle_deg: float | None = None
-        if key == (FingerIndex.INDEX, FingerIndex.MIDDLE):
+        if key == (FingerIndex.THUMB, FingerIndex.INDEX):
+            max_angle = self.config.hands.adjacent_fingers.thumb_index_max_angle_degrees
+            angle_deg = self.thumb_index_spread_angle
+        elif key == (FingerIndex.INDEX, FingerIndex.MIDDLE):
             max_angle = self.config.hands.adjacent_fingers.index_middle_max_angle_degrees
             angle_deg = self.index_middle_spread_angle
         elif key == (FingerIndex.MIDDLE, FingerIndex.RING):
@@ -431,7 +433,15 @@ class Hand(SmoothedBase):
 
         return bool(result)
 
-    def _calc_all_fingers_touching(self) -> bool:
+    def _calc_all_adjacent_fingers_touching(self) -> bool:
+        """Check if all adjacent fingers are touching each other."""
+        return self.all_adjacent_fingers_except_thumb_touching and self.are_fingers_touching(
+            FingerIndex.THUMB, FingerIndex.INDEX
+        )
+
+    all_adjacent_fingers_touching = smoothed_bool(_calc_all_adjacent_fingers_touching)
+
+    def _calc_all_adjacent_fingers_except_thumb_touching(self) -> bool:
         """Check if all adjacent fingers are touching each other."""
         return all(
             self.are_fingers_touching(finger1, finger2)
@@ -442,7 +452,19 @@ class Hand(SmoothedBase):
             )
         )
 
-    all_fingers_touching = smoothed_bool(_calc_all_fingers_touching)
+    all_adjacent_fingers_except_thumb_touching = smoothed_bool(_calc_all_adjacent_fingers_except_thumb_touching)
+
+    def _calc_thumb_index_spread_angle(self) -> float | None:
+        """Calculate the spread angle between thumb and index fingers."""
+        return self.get_finger_spread_angle(FingerIndex.THUMB, FingerIndex.INDEX)
+
+    thumb_index_spread_angle = smoothed_optional_float(_calc_thumb_index_spread_angle)
+
+    def _calc_thumb_index_touching(self) -> bool:
+        """Check if index and middle fingers are touching."""
+        return self.are_fingers_touching(FingerIndex.THUMB, FingerIndex.INDEX)
+
+    thumb_index_touching = smoothed_bool(_calc_thumb_index_touching)
 
     def _calc_index_middle_spread_angle(self) -> float | None:
         """Calculate the spread angle between index and middle fingers."""
@@ -479,25 +501,6 @@ class Hand(SmoothedBase):
         return self.are_fingers_touching(FingerIndex.RING, FingerIndex.PINKY)
 
     ring_pinky_touching = smoothed_bool(_calc_ring_pinky_touching)
-
-    # Non-adjacent finger combinations
-    def _calc_index_ring_touching(self) -> bool:
-        """Check if index and ring fingers are touching."""
-        return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.RING)
-
-    index_ring_touching = smoothed_bool(_calc_index_ring_touching)
-
-    def _calc_index_pinky_touching(self) -> bool:
-        """Check if index and pinky fingers are touching."""
-        return self.are_fingers_touching(FingerIndex.INDEX, FingerIndex.PINKY)
-
-    index_pinky_touching = smoothed_bool(_calc_index_pinky_touching)
-
-    def _calc_middle_pinky_touching(self) -> bool:
-        """Check if middle and pinky fingers are touching."""
-        return self.are_fingers_touching(FingerIndex.MIDDLE, FingerIndex.PINKY)
-
-    middle_pinky_touching = smoothed_bool(_calc_middle_pinky_touching)
 
     def _calc_bounding_box(self) -> Box | None:
         """Calculate the bounding box of the hand."""
@@ -664,7 +667,7 @@ class Hand(SmoothedBase):
                 # Index is touching thumb, others fingers are straight. Hand must be facing camera.
                 if (
                     self.is_facing_camera
-                    and index.touches_thumb
+                    and index.tip_on_thumb
                     and middle.is_nearly_straight_or_straight
                     and ring.is_nearly_straight_or_straight
                     and pinky.is_nearly_straight_or_straight
@@ -695,7 +698,7 @@ class Hand(SmoothedBase):
                     and not pinky.is_straight
                     # and not index.is_fully_bent
                 ):
-                    return Gestures.PINCH_TOUCH if index.touches_thumb else Gestures.PINCH
+                    return Gestures.PINCH_TOUCH if index.tip_on_thumb else Gestures.PINCH
 
             elif gesture == Gestures.GUN:
                 # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.

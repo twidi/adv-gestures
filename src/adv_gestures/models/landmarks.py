@@ -39,6 +39,7 @@ class LandmarkGroups:
     PALM: ClassVar[LandmarkGroup] = [
         HandLandmark.WRIST,
         HandLandmark.THUMB_CMC,
+        HandLandmark.THUMB_MCP,
         HandLandmark.INDEX_FINGER_MCP,
         HandLandmark.MIDDLE_FINGER_MCP,
         HandLandmark.RING_FINGER_MCP,
@@ -90,8 +91,8 @@ class Landmark(NamedTuple):
     """A landmark with pixel coordinates.
 
     Attributes:
-        x: X coordinate in pixels (0 to width) as integer
-        y: Y coordinate in pixels (0 to height) as integer
+        x: X coordinate in pixels (0 to width) as integer  => also accessible via `landmark[0]`
+        y: Y coordinate in pixels (0 to height) as integer  => also accessible via `landmark[1]`
         x_normalized: Original MediaPipe X coordinate (0 to 1)
         y_normalized: Original MediaPipe Y coordinate (0 to 1)
         z_normalized: Original MediaPipe Z coordinate (depth relative to wrist)
@@ -122,3 +123,8 @@ class Landmark(NamedTuple):
             y_normalized=mp_landmark.y,
             z_normalized=getattr(mp_landmark, "z", None),
         )
+
+    @property
+    def xy(self) -> tuple[int, int]:
+        """Get the (x, y) coordinates as a tuple."""
+        return self.x, self.y

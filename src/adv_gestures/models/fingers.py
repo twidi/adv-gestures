@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import IntEnum
 from functools import cached_property
 from math import sqrt
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar
 
 import numpy as np
 
@@ -53,11 +53,13 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         "is_fully_bent",
         "fold_angle",
         "tip_direction",
-        "touches_thumb",
+        "tip_on_thumb",
         "touching_adjacent_fingers",
     )
 
     index: ClassVar[FingerIndex]
+    adjacent_fingers_indexes: ClassVar[tuple[FingerIndex, ...]] = ()
+    start_point_index: ClassVar[int] = 0
 
     def __init__(self, hand: Hand, config: Config):
         super().__init__()
@@ -84,8 +86,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         return len(self.landmarks) > 0
 
     def is_adjacent_to(self, other: FingerIndex | AnyFinger) -> bool:
-        other_index = other.index if isinstance(other, Finger) else other
-        return abs(self.index - other_index) == 1
+        return abs(self.index - (other.index if isinstance(other, Finger) else other)) == 1
 
     def _calc_centroid(self) -> tuple[float, float]:
         """Calculate the centroid of all finger landmarks."""
@@ -163,7 +164,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         """Get the start point of the finger (base)."""
         if not self.landmarks:
             return None
-        return self.landmarks[0].x, self.landmarks[0].y
+        return self.landmarks[self.start_point_index].xy
 
     start_point = SmoothedProperty(_calc_start_point, CoordSmoother)
 
@@ -171,21 +172,19 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         """Get the end point of the finger (tip)."""
         if not self.landmarks:
             return None
-        return self.landmarks[-1].x, self.landmarks[-1].y
+        return self.landmarks[-1].xy
 
     end_point = SmoothedProperty(_calc_end_point, CoordSmoother)
 
     def _calc_fold_angle(self) -> float | None:
         """Calculate the fold angle at the PIP joint (angle between MCP->PIP and PIP->TIP vectors).
         Returns angle in degrees. 180 = straight, lower angles = more bent."""
-        if len(self.landmarks) < 3:
+        if len(self.landmarks) < 4:
             return None
 
-        # For thumb, use CMC->IP->TIP instead of MCP->PIP->TIP
+        # For thumb, use MCP->IP->TIP instead of MCP->PIP->TIP
         if self.index == FingerIndex.THUMB:
-            if len(self.landmarks) <= 3:
-                return None
-            mcp, pip, tip = self.landmarks[0], self.landmarks[1], self.landmarks[3]
+            mcp, pip, tip = self.landmarks[1], self.landmarks[2], self.landmarks[3]
         else:
             # For other fingers: MCP->PIP->TIP
             mcp, pip, tip = self.landmarks[0], self.landmarks[1], self.landmarks[3]
@@ -252,16 +251,12 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         if self.is_not_straight_at_all:
             return None
 
-        if len(self.landmarks) < 2:
+        if self.end_point is None or self.start_point is None:
             return None
 
-        # Get the first and last points
-        first = self.landmarks[0]
-        last = self.landmarks[-1]
-
         # Calculate direction vector
-        dx = last.x - first.x
-        dy = last.y - first.y
+        dx = self.end_point[0] - self.start_point[0]
+        dy = self.end_point[1] - self.start_point[1]
 
         # Normalize the vector
         magnitude = np.sqrt(dx**2 + dy**2)
@@ -296,53 +291,36 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
     @cached_property
     def touching_adjacent_fingers(self) -> list[FingerIndex]:
-        raise NotImplementedError
+        return [finger_index for finger_index in self.adjacent_fingers_indexes if self.is_touching(finger_index)]
 
     def is_touching(self, other: FingerIndex | AnyFinger) -> bool:
-        """Check if this finger is touching another finger."""
+        """Check if this finger is touching another finger. Can only be True for adjacent fingers."""
+
+        if not self.is_adjacent_to(other):
+            return False
+
         other_index = other.index if isinstance(other, Finger) else other
 
-        if self.index == other_index:
-            return True  # A finger is always touching itself
-
-        # Special case: checking if a finger touches the thumb
-        if self.index == FingerIndex.THUMB:
-            # Get the other finger and check its touches_thumb property
-            other_finger = cast(OtherFinger, self.hand.fingers[other_index])
-            return other_finger.touches_thumb
-
-        if other_index == FingerIndex.THUMB:
-            # This finger checking if it touches thumb
-            return cast(OtherFinger, self).touches_thumb
-
-        # For non-thumb combinations, use smoothed properties
         # Order fingers to avoid duplicates (always use lower index first)
         finger1, finger2 = sorted((self.index, other_index))
+        key = (finger1, finger2)
 
-        if finger1 == FingerIndex.INDEX:
-            if finger2 == FingerIndex.MIDDLE:
-                return self.hand.index_middle_touching
-            if finger2 == FingerIndex.RING:
-                return self.hand.index_ring_touching
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.index_pinky_touching
+        if key == (FingerIndex.THUMB, FingerIndex.INDEX):
+            return self.hand.thumb_index_touching
+        if key == (FingerIndex.INDEX, FingerIndex.MIDDLE):
+            return self.hand.index_middle_touching
+        if key == (FingerIndex.MIDDLE, FingerIndex.RING):
+            return self.hand.middle_ring_touching
+        if key == (FingerIndex.RING, FingerIndex.PINKY):
+            return self.hand.ring_pinky_touching
 
-        if finger1 == FingerIndex.MIDDLE:
-            if finger2 == FingerIndex.RING:
-                return self.hand.middle_ring_touching
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.middle_pinky_touching
-
-        if finger1 == FingerIndex.RING:
-            if finger2 == FingerIndex.PINKY:
-                return self.hand.ring_pinky_touching
-
-        # Should never reach here if all combinations are covered
         return False
 
 
 class Thumb(Finger[ThumbConfig]):
     index = FingerIndex.THUMB
+    adjacent_fingers_indexes = (FingerIndex.INDEX,)
+    start_point_index: ClassVar[int] = 1
 
     def _calc_straightness_score(self) -> float:
         """Basic straightness score calculation for thumb."""
@@ -394,11 +372,6 @@ class Thumb(Finger[ThumbConfig]):
         return float(score)
 
     straightness_score = smoothed_float(_calc_straightness_score)
-
-    @cached_property
-    def touching_adjacent_fingers(self) -> list[FingerIndex]:
-        """Get list of adjacent fingers that this finger is touching."""
-        return [FingerIndex.INDEX] if self.hand.index.touches_thumb else []
 
 
 class OtherFinger(Finger[FingerConfig]):
@@ -514,7 +487,7 @@ class OtherFinger(Finger[FingerConfig]):
 
     straightness_score = smoothed_float(_calc_straightness_score)
 
-    def _calc_touches_thumb(self) -> bool:
+    def _calc_tip_on_thumb(self) -> bool:
         """Check if this finger tip touches the thumb tip of the same hand."""
 
         # Get the thumb finger
@@ -524,12 +497,15 @@ class OtherFinger(Finger[FingerConfig]):
             return False
 
         # Get the tip landmarks (last landmark of each finger)
-        thumb_tip = thumb.landmarks[-1]
-        finger_tip = self.landmarks[-1]
+        thumb_tip = thumb.end_point
+        finger_tip = self.end_point
+
+        if thumb_tip is None or finger_tip is None:
+            return False
 
         # Calculate distance (coordinates already include aspect ratio correction)
-        dx = finger_tip.x - thumb_tip.x
-        dy = finger_tip.y - thumb_tip.y
+        dx = finger_tip[0] - thumb_tip[0]
+        dy = finger_tip[1] - thumb_tip[1]
         distance = sqrt(dx**2 + dy**2)
 
         # Calculate hand scale using the current finger's DIP-TIP segment length
@@ -540,8 +516,8 @@ class OtherFinger(Finger[FingerConfig]):
             dip = self.landmarks[-2]  # DIP
             tip = self.landmarks[-1]  # TIP
             # Calculate segment length (coordinates already include aspect ratio)
-            segment_dx = tip.x - dip.x
-            segment_dy = tip.y - dip.y
+            segment_dx = tip[0] - dip[0]
+            segment_dy = tip[1] - dip[1]
             hand_scale = sqrt(segment_dx**2 + segment_dy**2)
 
         # Touch threshold relative to hand scale
@@ -549,56 +525,27 @@ class OtherFinger(Finger[FingerConfig]):
 
         return distance < relative_threshold
 
-    touches_thumb = smoothed_bool(_calc_touches_thumb)
-
-    @cached_property
-    def touching_adjacent_fingers(self) -> list[FingerIndex]:
-        """Get list of adjacent fingers that this finger is touching."""
-
-        touching = []
-
-        # Define adjacent fingers based on finger index
-        if self.index == FingerIndex.INDEX:
-            # Index can only touch middle
-            if self.hand.index_middle_touching:
-                touching.append(FingerIndex.MIDDLE)
-
-        elif self.index == FingerIndex.MIDDLE:
-            # Middle can touch index and ring
-            if self.hand.index_middle_touching:
-                touching.append(FingerIndex.INDEX)
-            if self.hand.middle_ring_touching:
-                touching.append(FingerIndex.RING)
-
-        elif self.index == FingerIndex.RING:
-            # Ring can touch middle and pinky
-            if self.hand.middle_ring_touching:
-                touching.append(FingerIndex.MIDDLE)
-            if self.hand.ring_pinky_touching:
-                touching.append(FingerIndex.PINKY)
-
-        elif self.index == FingerIndex.PINKY:
-            # Pinky can only touch ring
-            if self.hand.ring_pinky_touching:
-                touching.append(FingerIndex.RING)
-
-        return touching
+    tip_on_thumb = smoothed_bool(_calc_tip_on_thumb)
 
 
 class IndexFinger(OtherFinger):
     index = FingerIndex.INDEX
+    adjacent_fingers_indexes = (FingerIndex.THUMB, FingerIndex.MIDDLE)
 
 
 class MiddleFinger(OtherFinger):
     index = FingerIndex.MIDDLE
+    adjacent_fingers_indexes = (FingerIndex.INDEX, FingerIndex.RING)
 
 
 class RingFinger(OtherFinger):
     index = FingerIndex.RING
+    adjacent_fingers_indexes = (FingerIndex.MIDDLE, FingerIndex.PINKY)
 
 
 class PinkyFinger(OtherFinger):
     index = FingerIndex.PINKY
+    adjacent_fingers_indexes = (FingerIndex.RING,)
 
 
 FINGER_CLASS: dict[FingerIndex, type[Finger[Any]]] = {

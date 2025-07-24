@@ -78,8 +78,10 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             direction = f"({hand.main_direction[0]:.2f}, {hand.main_direction[1]:.2f})"
             print(f"  Main direction: {direction}")
 
-        if hand.all_fingers_touching:
+        if hand.all_adjacent_fingers_touching:
             print("  All adjacent fingers touching!")
+        elif hand.all_adjacent_fingers_except_thumb_touching:
+            print("  All adjacent fingers except thumb touching!")
 
         for finger in hand.fingers:
             finger_name = finger.index.name
@@ -94,8 +96,8 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             if finger.is_fully_bent:
                 status.append("bent")
 
-            if not isinstance(finger, Thumb) and finger.touches_thumb:
-                status.append("touches_thumb")
+            if not isinstance(finger, Thumb) and finger.tip_on_thumb:
+                status.append("tip_on_thumb")
 
             if finger.touching_adjacent_fingers:
                 touching_names = [f.name for f in finger.touching_adjacent_fingers]

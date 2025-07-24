@@ -35,10 +35,10 @@ class FingerStraightnessConfig(BaseFingerStraightnessConfig):
 
 class ThumbStraightnessConfig(BaseFingerStraightnessConfig):
     straight_threshold: float = Field(
-        0.7, description=BaseFingerStraightnessConfig.model_fields["straight_threshold"].description
+        0.6, description=BaseFingerStraightnessConfig.model_fields["straight_threshold"].description
     )
     nearly_straight_threshold: float = Field(
-        0.5, description=BaseFingerStraightnessConfig.model_fields["nearly_straight_threshold"].description
+        0.3, description=BaseFingerStraightnessConfig.model_fields["nearly_straight_threshold"].description
     )
     alignment_threshold: float = Field(0.02, description="Minimum cross product magnitude for perfect alignment")
     max_deviation_for_zero_score: float = Field(0.15, description="Deviation magnitude that results in zero score")
@@ -72,6 +72,9 @@ class ThumbConfig(BaseFingerConfig):
 
 
 class AdjacentFingerConfig(BaseModel):
+    thumb_index_max_angle_degrees: float = Field(
+        10.0, description="Max angle (degrees) between thumb and index fingers for touching"
+    )
     index_middle_max_angle_degrees: float = Field(
         3.0, description="Max angle (degrees) between index and middle fingers for touching"
     )
