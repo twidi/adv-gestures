@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import cached_property
-from math import sqrt
+from math import cos, radians, sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
@@ -137,6 +137,13 @@ class Hands:
             if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
                 custom_gestures = hand.detect_gestures()
             hand.update_custom_gestures(custom_gestures)
+
+
+# -cos(radians(30)) means pointing up with a tolerance of 30 degrees
+VICTORY_GESTURE_DIRECTION = -cos(radians(30))
+SPOCK_GESTURE_DIRECTION = -cos(radians(20))
+STOP_GESTURE_DIRECTION = -cos(radians(20))
+GUN_GESTURE_THUMB_DIRECTION = -cos(radians(90))
 
 
 class Hand(SmoothedBase):
@@ -693,6 +700,8 @@ class Hand(SmoothedBase):
         # (should be detected by default, but it's not always the case)
         if (
             not self.is_gesture_disabled(Gestures.VICTORY)
+            and self.main_direction is not None
+            and self.main_direction[1] < VICTORY_GESTURE_DIRECTION
             and index.is_straight
             and middle.is_straight
             and ring.is_not_straight_at_all
@@ -708,6 +717,8 @@ class Hand(SmoothedBase):
         if (
             not self.is_gesture_disabled(Gestures.SPOCK)
             and self.is_facing_camera
+            and self.main_direction is not None
+            and self.main_direction[1] < SPOCK_GESTURE_DIRECTION
             and index.is_straight
             and middle.is_straight
             and ring.is_straight
@@ -722,7 +733,6 @@ class Hand(SmoothedBase):
         # Index and pinky are straight, others are not. Hand must not be facing camera.
         if (
             not self.is_gesture_disabled(Gestures.ROCK)
-            and not self.is_facing_camera
             and index.is_straight
             and pinky.is_straight
             and not thumb.is_straight
@@ -744,10 +754,13 @@ class Hand(SmoothedBase):
             detected[Gestures.OK] = 1.0
 
         # Check for Stop gesture
-        # All fingers are straight and touching each others. Thumb is ignored. Hand must be facing camera.
+        # All fingers are straight and touching each others. Thumb is ignored.
+        # Hand must be facing camera and pointing upward.
         if (
             not self.is_gesture_disabled(Gestures.STOP)
             and self.is_facing_camera
+            and self.main_direction is not None
+            and self.main_direction[1] < STOP_GESTURE_DIRECTION
             and index.is_straight
             and middle.is_straight
             and ring.is_straight
@@ -779,6 +792,8 @@ class Hand(SmoothedBase):
         finger_gun_enabled = not self.is_gesture_disabled(Gestures.FINGER_GUN)
         if (
             (gun_enabled or finger_gun_enabled)
+            and thumb.straight_direction is not None
+            and thumb.straight_direction[1] < GUN_GESTURE_THUMB_DIRECTION
             and thumb.is_nearly_straight_or_straight
             and index.is_nearly_straight_or_straight
             and ring.is_not_straight_at_all
