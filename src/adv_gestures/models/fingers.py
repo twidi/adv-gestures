@@ -508,16 +508,17 @@ class OtherFinger(Finger[FingerConfig]):
         dy = finger_tip[1] - thumb_tip[1]
         distance = sqrt(dx**2 + dy**2)
 
-        # Calculate hand scale using the current finger's DIP-TIP segment length
+        # Calculate hand scale using the thumb's IP-TIP segment length
         # This gives us a reference that scales with hand distance from camera
         hand_scale = 1.0
 
-        if len(self.landmarks) >= 4:
-            dip = self.landmarks[-2]  # DIP
-            tip = self.landmarks[-1]  # TIP
+        if len(thumb.landmarks) >= 4:
+            # For thumb: IP is at index 2, TIP is at index 3
+            ip = thumb.landmarks[2]  # IP
+            tip = thumb.landmarks[3]  # TIP
             # Calculate segment length (coordinates already include aspect ratio)
-            segment_dx = tip[0] - dip[0]
-            segment_dy = tip[1] - dip[1]
+            segment_dx = tip[0] - ip[0]
+            segment_dy = tip[1] - ip[1]
             hand_scale = sqrt(segment_dx**2 + segment_dy**2)
 
         # Touch threshold relative to hand scale
