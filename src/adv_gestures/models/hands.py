@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections import deque
 from enum import Enum
 from functools import cached_property
-from math import cos, radians, sqrt
+from math import acos, cos, radians, sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
@@ -106,7 +107,12 @@ class Hands:
 
             # Get default gesture information
             gesture_type = None
-            if result.gestures and hand_index < len(result.gestures) and result.gestures[hand_index]:
+            if (
+                hand_landmarks is not None
+                and result.gestures
+                and hand_index < len(result.gestures)
+                and result.gestures[hand_index]
+            ):
                 if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.default.disable_all):
                     gesture = result.gestures[hand_index][0]  # Get the top gesture
                     gesture_type = (
@@ -117,26 +123,10 @@ class Hands:
 
             # Update hand data
             hand.update(
-                is_visible=True,
-                wrist_landmark=hand_landmarks[HandLandmark.WRIST],
                 default_gesture=gesture_type,
                 all_landmarks=hand_landmarks,
                 stream_info=stream_info,
             )
-
-            # Update palm
-            hand.palm.update([hand_landmarks[idx] for idx in PALM_LANDMARKS])
-
-            # Update fingers
-            for finger_idx, finger in enumerate(hand.fingers):
-                finger_landmarks = [hand_landmarks[idx] for idx in FINGERS_LANDMARKS[finger_idx]]
-                finger.update(landmarks=finger_landmarks)
-
-            # Detect custom gestures (always detect them, regardless of default gesture)
-            custom_gestures: GestureWeights = {}
-            if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
-                custom_gestures = hand.detect_gestures()
-            hand.update_custom_gestures(custom_gestures)
 
 
 # -cos(radians(30)) means pointing up with a tolerance of 30 degrees
@@ -201,6 +191,9 @@ class Hand(SmoothedBase):
         self._last_custom_gestures: set[Gestures] = set()
         self._last_gestures: set[Gestures] = set()
 
+        # Direction history for wave detection (timestamp, direction_x, direction_y, direction_z)
+        self._direction_history: deque[tuple[float, float, float, float]] = deque()
+
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
         # Call parent class reset for smoothed properties
@@ -225,8 +218,6 @@ class Hand(SmoothedBase):
 
     def update(
         self,
-        is_visible: bool,
-        wrist_landmark: Landmark | None,
         default_gesture: Gestures | None,
         all_landmarks: list[Landmark] | None = None,
         stream_info: StreamInfo | None = None,
@@ -236,16 +227,40 @@ class Hand(SmoothedBase):
         Note: custom_gesture is not passed here because it needs to be calculated
         after the hand data is updated. Use update_custom_gesture() for that.
         """
-        self.is_visible = is_visible
-        self.wrist_landmark = wrist_landmark
         self._raw_default_gesture = default_gesture
         self.stream_info = stream_info
-        if all_landmarks is not None:
-            self.all_landmarks = all_landmarks
+        if all_landmarks is None:
+            return
 
-    def update_custom_gestures(self, custom_gestures: GestureWeights) -> None:
-        """Update the custom gestures after detection."""
+        self.is_visible = True
+        self.wrist_landmark = all_landmarks[HandLandmark.WRIST]
+        self.all_landmarks = all_landmarks
+
+        # Update palm
+        self.palm.update([self.all_landmarks[idx] for idx in PALM_LANDMARKS])
+
+        # Update fingers
+        for finger_idx, finger in enumerate(self.fingers):
+            finger_landmarks = [self.all_landmarks[idx] for idx in FINGERS_LANDMARKS[finger_idx]]
+            finger.update(landmarks=finger_landmarks)
+
+        # Detect custom gestures (always detect them, regardless of default gesture)
+        custom_gestures: GestureWeights = {}
+        if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.custom.disable.all):  # type: ignore[attr-defined]
+            custom_gestures = self.detect_gestures()
         self._raw_custom_gestures = custom_gestures
+
+        # Update direction history if hand is visible and has direction
+        direction = self.main_direction
+        if direction is not None:
+            current_time = time()
+            # Add new direction to history
+            self._direction_history.append((current_time, direction[0], direction[1], 0.0))
+
+            # Remove directions older than 5 seconds
+            cutoff_time = current_time - 5.0
+            while self._direction_history and self._direction_history[0][0] < cutoff_time:
+                self._direction_history.popleft()
 
     def __bool__(self) -> bool:
         """Check if the hand is visible and has a valid handedness."""
@@ -333,6 +348,105 @@ class Hand(SmoothedBase):
         return dx / magnitude, dy / magnitude
 
     main_direction = SmoothedProperty(_calc_main_direction, CoordSmoother)
+
+    def _calc_is_waving(self) -> bool:
+        """Check if the hand is waving (oscillating left-right movement)."""
+        if not self._direction_history:
+            return False
+
+        current_time = time()
+        duration = 1  # Check for wave pattern in last 2 seconds
+
+        # Find directions within the duration window
+        cutoff_time = current_time - duration
+        directions_in_window = [(t, x, y) for t, x, y, _ in self._direction_history if t >= cutoff_time]
+
+        if len(directions_in_window) < 3:  # Need at least 3 points to detect oscillation
+            return False
+
+        # Check if we have data covering sufficient duration (at least 80% of window)
+        time_coverage = current_time - directions_in_window[0][0]
+        if time_coverage < duration * 0.8:
+            return False
+
+        # Detect direction changes based on X component sign changes
+        # We need to detect at least 1.5 oscillations (e.g., left→right→left)
+        x_tolerance = 0.05  # Tolerance zone around x=0 to avoid noise
+
+        # Track direction changes
+        direction_changes = []
+        last_significant_x = None
+
+        for i, (t, x, _y) in enumerate(directions_in_window):
+            # Skip values in tolerance zone
+            if abs(x) < x_tolerance:
+                continue
+
+            current_sign = 1 if x > 0 else -1
+
+            if last_significant_x is not None:
+                last_sign = 1 if last_significant_x > 0 else -1
+                if current_sign != last_sign:
+                    # Direction change detected
+                    if i > 0:
+                        prev_t = directions_in_window[i - 1][0]
+                        direction_changes.append((prev_t, t))
+
+            last_significant_x = x
+
+        # Check if we have at least 2 direction changes (1.5 oscillations)
+        if len(direction_changes) < 2:
+            return False
+
+        # Check that the last direction change is recent (within last 0.5 seconds)
+        # This ensures we stop detecting wave when hand stops moving
+        if direction_changes:
+            last_change_time = direction_changes[-1][1]
+            time_since_last_change = current_time - last_change_time
+            if time_since_last_change > 0.5:
+                return False
+
+        # Also check that we have recent movement in the last 0.3 seconds
+        # to ensure the hand is still actively moving
+        recent_directions = [(t, x, y) for t, x, y in directions_in_window if current_time - t <= 0.3]
+        if len(recent_directions) < 2:
+            return False
+
+        # Verify angle changes are significant enough (30 degrees)
+        # Check angles between consecutive significant directions
+        min_angle_deg = 2.5
+        min_angle_rad = radians(min_angle_deg)
+
+        significant_directions = [(x, y) for _, x, y in directions_in_window if abs(x) >= x_tolerance]
+
+        if len(significant_directions) < 3:
+            return False
+
+        # Check angle between first and middle, middle and last directions
+        for i in range(1, len(significant_directions) - 1):
+            prev_x, prev_y = significant_directions[i - 1]
+            curr_x, curr_y = significant_directions[i]
+            next_x, next_y = significant_directions[i + 1]
+
+            # Calculate angles between vectors
+            # Angle between prev→curr and curr→next
+            dot1 = prev_x * curr_x + prev_y * curr_y
+            dot2 = curr_x * next_x + curr_y * next_y
+
+            # Clamp to avoid numerical errors with acos
+            dot1 = max(-1.0, min(1.0, dot1))
+            dot2 = max(-1.0, min(1.0, dot2))
+
+            angle1 = acos(dot1)
+            angle2 = acos(dot2)
+
+            # At least one angle should be significant
+            if angle1 >= min_angle_rad or angle2 >= min_angle_rad:
+                return True
+
+        return False
+
+    is_waving = smoothed_bool(_calc_is_waving)
 
     def get_finger_spread_angle(
         self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger
@@ -815,6 +929,15 @@ class Hand(SmoothedBase):
             and index.is_tip_stable
         ):
             detected[Gestures.AIR_TAP] = 1.0
+
+        # Check for Wave gesture
+        # Open palm waving left-right
+        if (
+            not self.is_gesture_disabled(Gestures.WAVE)
+            and (self.default_gesture == Gestures.OPEN_PALM or Gestures.STOP in detected)
+            and self.is_waving
+        ):
+            detected[Gestures.WAVE] = 1.0
 
         return detected
 
