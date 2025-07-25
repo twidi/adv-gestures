@@ -139,6 +139,7 @@ GUN_GESTURE_THUMB_DIRECTION = -cos(radians(90))
 class Hand(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
         "is_facing_camera",
+        "is_showing_side",
         "main_direction",
         "all_fingers_touching",
         "bounding_box",
@@ -317,6 +318,38 @@ class Hand(SmoothedBase):
         return cast(bool, normal[2] < 0 if self.handedness == Handedness.RIGHT else normal[2] > 0)
 
     is_facing_camera = smoothed_bool(_calc_is_facing_camera)
+
+    def _calc_is_showing_side(self) -> bool:
+        """Check if hand is showing its side (perpendicular to camera)."""
+        if not self.stream_info:
+            return False
+
+        # Get centroids of all fingers except thumb (indices 1-4)
+        centroids = []
+        for i in range(1, 5):  # index, middle, ring, pinky
+            centroid = self.fingers[i].centroid
+            if not centroid:
+                return False
+            centroids.append(centroid)
+
+        # Calculate mean position
+        mean_x = sum(c[0] for c in centroids) / 4
+        mean_y = sum(c[1] for c in centroids) / 4
+
+        # Calculate variance (sum of squared distances from mean)
+        variance_x = sum((c[0] - mean_x) ** 2 for c in centroids) / 4
+        variance_y = sum((c[1] - mean_y) ** 2 for c in centroids) / 4
+        total_variance = variance_x + variance_y
+
+        # Normalize by frame dimensions (to make threshold independent of distance)
+        normalized_variance = total_variance / (self.stream_info.width**2)
+
+        # Threshold (empirically determined)
+        threshold = 0.00025
+
+        return normalized_variance < threshold
+
+    is_showing_side = smoothed_bool(_calc_is_showing_side)
 
     def _calc_main_direction(self) -> tuple[float, float] | None:
         """Calculate the main direction of the hand in the x/y plane.

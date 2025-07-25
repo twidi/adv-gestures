@@ -347,7 +347,10 @@ def draw_hands_marks_and_info(
     # Process left hand
     if hands.left:
         handedness_str = "LEFT"
-        facing_str = "PALM" if hands.left.is_facing_camera else "BACK"
+        if hands.left.is_showing_side:
+            facing_str = "SIDE"
+        else:
+            facing_str = "PALM" if hands.left.is_facing_camera else "BACK"
 
         # Hand header line
         header_text = f"{handedness_str} hand showing {facing_str}"
@@ -379,7 +382,10 @@ def draw_hands_marks_and_info(
     # Process right hand
     if hands.right:
         handedness_str = "RIGHT"
-        facing_str = "PALM" if hands.right.is_facing_camera else "BACK"
+        if hands.right.is_showing_side:
+            facing_str = "SIDE"
+        else:
+            facing_str = "PALM" if hands.right.is_facing_camera else "BACK"
 
         # Hand header line
         header_text = f"{handedness_str} hand showing {facing_str}"
