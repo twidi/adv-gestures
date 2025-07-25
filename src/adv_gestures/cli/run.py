@@ -118,6 +118,24 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
             status_str = ", ".join(status) if status else "neutral"
             print(f"    {finger_name}: {status_str}")
 
+    # Display two-hands gestures
+    if hands.gestures:
+        print("\nTwo-Hands Gestures:")
+        gestures_list = sorted(hands.gestures.items(), key=lambda x: x[1], reverse=True)
+        durations = hands.gestures_durations
+
+        for gesture, weight in gestures_list:
+            gesture_line = f"  {gesture.name}: weight={weight:.2f}"
+            if gesture in durations:
+                gesture_line += f", duration={durations[gesture]:.1f}s"
+            print(gesture_line)
+
+    # Display hands distance info
+    if hands.hands_distance is not None:
+        print(f"\nHands distance: {hands.hands_distance:.0f}px")
+        if hands.hands_are_close:
+            print("  Hands are close together!")
+
 
 def run_gestures(
     camera_info: CameraInfo,

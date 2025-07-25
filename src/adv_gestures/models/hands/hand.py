@@ -45,7 +45,9 @@ class Hand(SmoothedBase):
         "is_facing_camera",
         "is_showing_side",
         "main_direction",
-        "all_fingers_touching",
+        "is_waving",
+        "all_adjacent_fingers_touching",
+        "all_adjacent_fingers_except_thumb_touching",
         "bounding_box",
         "pinch_box",
         # All adjacent finger pairs
@@ -57,7 +59,10 @@ class Hand(SmoothedBase):
         "middle_ring_touching",
         "ring_pinky_spread_angle",
         "ring_pinky_touching",
-        # gestures durations
+        # gestures
+        "default_gesture",
+        "custom_gestures",
+        "gestures",
         "gestures_durations",
         "custom_gestures_durations",
     )
@@ -84,8 +89,6 @@ class Hand(SmoothedBase):
             self.pinky,
         )
 
-        self.gestures_detector = HandGesturesDetector(self)
-
         self.wrist_landmark: Landmark | None = None
         self._raw_default_gesture: Gestures | None = None
         self._raw_custom_gestures: GestureWeights = {}
@@ -100,6 +103,8 @@ class Hand(SmoothedBase):
 
         # Direction history for wave detection (timestamp, direction_x, direction_y, direction_z)
         self._direction_history: deque[tuple[float, float, float, float]] = deque()
+
+        self.gestures_detector = HandGesturesDetector(self)
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""

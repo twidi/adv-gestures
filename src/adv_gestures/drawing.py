@@ -414,11 +414,28 @@ def draw_hands_marks_and_info(
         else:
             right_lines.append(("  No gestures detected", "gesture"))
 
+    # Process two-hands gestures to display in center column
+    center_lines = []
+    if hands.gestures:
+        # Get two-hands gestures with their durations
+        gestures_list = sorted(hands.gestures.items(), key=lambda x: x[1], reverse=True)
+        durations = hands.gestures_durations
+
+        # Header for two-hands gestures
+        center_lines.append(("TWO HANDS", "header"))
+
+        for gesture, weight in gestures_list:
+            gesture_text = f"  {gesture.name}: {weight:.2f}"
+            if gesture in durations:
+                gesture_text += f" ({durations[gesture]:.1f}s)"
+            center_lines.append((gesture_text, "gesture"))
+
     # Calculate footer dimensions based on max lines
-    if left_lines or right_lines:
+    if left_lines or right_lines or center_lines:
         # Calculate height needed for each side
         left_height = padding * 2
         right_height = padding * 2
+        center_height = padding * 2
 
         for _, line_type in left_lines:
             if line_type == "header":
@@ -432,8 +449,14 @@ def draw_hands_marks_and_info(
             elif line_type == "gesture":
                 right_height += line_height
 
+        for _, line_type in center_lines:
+            if line_type == "header":
+                center_height += header_height
+            elif line_type == "gesture":
+                center_height += line_height
+
         # Use the maximum height
-        footer_height = max(left_height, right_height)
+        footer_height = max(left_height, right_height, center_height)
         footer_y_start = frame_height - footer_height
 
         # Add semi-transparent black footer
@@ -508,5 +531,45 @@ def draw_hands_marks_and_info(
                         cv2.LINE_AA,
                     )
                     y_pos += line_height
+
+    # Draw center column if there are two-hands gestures
+    if center_lines:
+        # Calculate center column position
+        center_x = frame_width // 2
+        y_pos = footer_y_start + padding
+
+        for text, line_type in center_lines:
+            if line_type == "header":
+                # Center the header text
+                text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                x_pos = center_x - text_size[0] // 2
+
+                cv2.putText(
+                    frame,
+                    text,
+                    (x_pos, y_pos + header_height - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 255),  # Cyan for two-hands gestures
+                    2,
+                    cv2.LINE_AA,
+                )
+                y_pos += header_height
+            elif line_type == "gesture":
+                # Center the gesture text
+                text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
+                x_pos = center_x - text_size[0] // 2
+
+                cv2.putText(
+                    frame,
+                    text,
+                    (x_pos, y_pos + line_height - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (0, 200, 200),  # Lighter cyan for gesture details
+                    1,
+                    cv2.LINE_AA,
+                )
+                y_pos += line_height
 
     return frame

@@ -56,6 +56,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         "tip_direction",
         "tip_on_thumb",
         "touching_adjacent_fingers",
+        "is_tip_stable",
     )
 
     index: ClassVar[FingerIndex]

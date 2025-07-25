@@ -5,7 +5,7 @@ from typing import Any
 import platformdirs
 from pydantic import BaseModel, Field, create_model
 
-from .gestures import CUSTOM_GESTURES
+from .gestures import CUSTOM_GESTURES, TWO_HANDS_GESTURES
 
 
 class BaseFingerStraightnessConfig(BaseModel):
@@ -120,8 +120,28 @@ class CustomGesturesConfig(BaseModel):
     )
 
 
+# Create fields for TwoHandsGesturesDisableConfig dynamically
+_two_hands_gesture_fields: dict[str, Any] = {
+    "all": (bool, Field(False, description="Disable all two-hands gestures"))
+}
+
+# Add a field for each two-hands gesture, sorted alphabetically
+for _gesture in sorted(TWO_HANDS_GESTURES, key=lambda g: g.name):
+    _field_name = _gesture.name
+    _two_hands_gesture_fields[_field_name] = (bool, Field(False, description=f"Disable {_gesture.value} gesture"))
+
+TwoHandsGesturesDisableConfig = create_model("TwoHandsGesturesDisableConfig", **_two_hands_gesture_fields)
+
+
+class TwoHandsGesturesConfig(BaseModel):
+    disable: TwoHandsGesturesDisableConfig = Field(  # type: ignore[valid-type]
+        default_factory=lambda: TwoHandsGesturesDisableConfig(),
+        description="Disable configuration for two-hands gestures",
+    )
+
+
 class GesturesConfig(BaseModel):
-    disable_all: bool = Field(False, description="Disable all gestures (both default and custom)")
+    disable_all: bool = Field(False, description="Disable all gestures (default, custom, and two-hands)")
     default: DefaultGesturesConfig = Field(
         default_factory=lambda: DefaultGesturesConfig(),
         description="Configuration for default MediaPipe gestures",
@@ -129,6 +149,10 @@ class GesturesConfig(BaseModel):
     custom: CustomGesturesConfig = Field(
         default_factory=lambda: CustomGesturesConfig(),
         description="Configuration for custom gestures",
+    )
+    two_hands: TwoHandsGesturesConfig = Field(
+        default_factory=lambda: TwoHandsGesturesConfig(),
+        description="Configuration for two-hands gestures",
     )
 
 

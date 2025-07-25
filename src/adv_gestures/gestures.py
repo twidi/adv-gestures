@@ -25,6 +25,9 @@ class Gestures(str, Enum):
     AIR_TAP = "Air_Tap"  # Index finger held straight and still for 2 seconds
     WAVE = "Wave"  # Open palm waving left-right motion
 
+    # Hands gestures (gestures implying both hands)
+    PRAY = "Pray"  # Both hands in a prayer position, palms together, fingers pointing up
+
 
 DEFAULT_GESTURES: set[Gestures] = {
     Gestures.CLOSED_FIST,
@@ -35,7 +38,10 @@ DEFAULT_GESTURES: set[Gestures] = {
     Gestures.VICTORY,
     Gestures.LOVE,
 }
+TWO_HANDS_GESTURES: set[Gestures] = {Gestures.PRAY}
+
 OVERRIDABLE_DEFAULT_GESTURES: set[Gestures] = {Gestures.VICTORY}
+
 CUSTOM_GESTURES: set[Gestures] = {
-    gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES
+    gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES and gesture not in TWO_HANDS_GESTURES
 } | OVERRIDABLE_DEFAULT_GESTURES
