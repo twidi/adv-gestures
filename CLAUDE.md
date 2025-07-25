@@ -102,6 +102,10 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Gesture weights normalized with strongest gesture at 1.0
    - Gesture detectors organized as classes inheriting from `GestureDetector`
    - Two-hands gestures require both hands to be detected and properly positioned
+   - Stateful gestures (e.g., CLAP) use `StatefulGestureDetector` base class for:
+     - Tracking gesture state over time
+     - Post-detection period (showing gesture after it ends)
+     - Min/max duration validation
 
 3. **Performance Considerations**:
    - Smoothed properties cached per frame
@@ -117,3 +121,8 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - **Linting**: Must pass `ruff` checks (`make lint` command)
 - **No Comments**: Do not add useless comments. Especially no comments explaining what changed.
 - **Follow Existing Patterns**: Match the style of surrounding code
+
+## Claude Guidance
+- When working with README.md and CLAUDE.md files, the content should reflect the CURRENT state of the project, not a narrative of changes. 
+  - Avoid phrases like "We added this" or "This was refactored"
+  - Focus on describing the project's current structure, features, and capabilities as they exist RIGHT NOW

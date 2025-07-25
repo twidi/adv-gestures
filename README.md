@@ -158,6 +158,7 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 
 ### Two-Hands Gestures
 - `PRAY` - Both hands in a prayer position, palms together, fingers pointing up
+- `CLAP` - Hands joined briefly (50-500ms) then separated, detected after separation
 
 ## Multiple Gesture Detection
 
