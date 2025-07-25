@@ -170,6 +170,17 @@ def draw_finger_marks(finger: AnyFinger, image: OpenCVImage) -> OpenCVImage:
     for landmark in finger.landmarks:
         cv2.circle(image, landmark.xy, 3, FINGER_COLORS[finger.index], -1)
 
+    # Draw cross at finger centroid
+    if finger.centroid:
+        centroid_x, centroid_y = finger.centroid
+        cx = int(round(centroid_x))
+        cy = int(round(centroid_y))
+        color = FINGER_COLORS[finger.index]
+        # Cross size matching landmark size
+        cross_size = 5
+        cv2.line(image, (cx - cross_size, cy), (cx + cross_size, cy), color, 1)
+        cv2.line(image, (cx, cy - cross_size), (cx, cy + cross_size), color, 1)
+
     if not finger.start_point or not finger.end_point:
         # If no start or end point, we cannot draw the finger line
         return image
