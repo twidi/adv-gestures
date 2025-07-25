@@ -27,8 +27,9 @@ from textual.widgets import (
 )
 from textual.widgets.tree import TreeNode
 
-from .. import Config
 from ..cameras import CameraInfo
+from ..config import Config
+from ..models.hands import Hands
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,
@@ -1360,8 +1361,8 @@ def run_opencv_thread(
 
     import cv2  # type: ignore[import-untyped]
 
-    from .. import Hands, Recognizer
     from ..drawing import draw_hands_marks_and_info
+    from ..recognizer import Recognizer
     from .common import init_camera_capture
 
     # Initialize global hands instance

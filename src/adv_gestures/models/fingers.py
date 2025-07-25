@@ -22,7 +22,7 @@ from ..smoothing import (
 from .landmarks import Landmark
 
 if TYPE_CHECKING:
-    from .hands import Hand
+    from .hands.hand import Hand
 
 FINGER_STRAIGHT_THRESHOLD = 0.90  # Default score above this is considered straight (strict)
 

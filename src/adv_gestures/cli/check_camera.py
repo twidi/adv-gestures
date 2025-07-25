@@ -8,8 +8,8 @@ from typing import cast
 import cv2  # type: ignore[import-untyped]
 import typer
 
-from .. import Config
 from ..cameras import CameraInfo
+from ..config import Config
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,

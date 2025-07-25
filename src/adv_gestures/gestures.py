@@ -26,7 +26,7 @@ class Gestures(str, Enum):
     WAVE = "Wave"  # Open palm waving left-right motion
 
 
-DEFAULT_GESTURES = {
+DEFAULT_GESTURES: set[Gestures] = {
     Gestures.CLOSED_FIST,
     Gestures.OPEN_PALM,
     Gestures.POINTING_UP,
@@ -35,5 +35,7 @@ DEFAULT_GESTURES = {
     Gestures.VICTORY,
     Gestures.LOVE,
 }
-OVERRIDABLE_DEFAULT_GESTURES = {Gestures.VICTORY}
-CUSTOM_GESTURES = {gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES} | OVERRIDABLE_DEFAULT_GESTURES
+OVERRIDABLE_DEFAULT_GESTURES: set[Gestures] = {Gestures.VICTORY}
+CUSTOM_GESTURES: set[Gestures] = {
+    gesture for gesture in Gestures if gesture not in DEFAULT_GESTURES
+} | OVERRIDABLE_DEFAULT_GESTURES

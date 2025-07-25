@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from collections import deque
-from enum import Enum
 from functools import cached_property
-from math import acos, cos, radians, sqrt
+from math import acos, radians, sqrt
 from time import time
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import numpy as np
 
-from ..config import Config
-from ..gestures import Gestures
-from ..smoothing import (
+from ...config import Config
+from ...gestures import Gestures
+from ...smoothing import (
     BoxSmoother,
     CoordSmoother,
     GestureSmoother,
@@ -22,7 +21,7 @@ from ..smoothing import (
     smoothed_bool,
     smoothed_optional_float,
 )
-from .fingers import (
+from ..fingers import (
     AnyFinger,
     Finger,
     FingerIndex,
@@ -32,108 +31,13 @@ from .fingers import (
     RingFinger,
     Thumb,
 )
-from .landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
+from ..landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
+from .hand_gestures import HandGesturesDetector
+from .palm import Palm
+from .utils import Box, Handedness
 
 if TYPE_CHECKING:
-    from ..recognizer import Recognizer, StreamInfo
-
-
-class Handedness(str, Enum):
-    """Handedness enum for MediaPipe."""
-
-    LEFT = "left"
-    RIGHT = "right"
-
-    @classmethod
-    def from_data(cls, handedness_str: str) -> Handedness:
-        """Convert MediaPipe handedness string to Handedness enum."""
-        return cls(handedness_str.lower())
-
-    def __str__(self) -> str:
-        """Return the string representation of the handedness."""
-        return self.value
-
-
-class Box(NamedTuple):
-    """Represents a bounding box."""
-
-    min_x: float
-    min_y: float
-    max_x: float
-    max_y: float
-
-
-class Hands:
-
-    def __init__(self, config: Config) -> None:
-        """Initialize both hands."""
-        self.config = config
-        self.stream_info: StreamInfo | None = None
-        self.left: Hand = Hand(handedness=Handedness.LEFT, config=config)
-        self.right: Hand = Hand(handedness=Handedness.RIGHT, config=config)
-
-    def reset(self) -> None:
-        """Reset both hands and clear all cached properties."""
-        self.left.reset()
-        self.right.reset()
-
-    def update_hands(self, recognizer: Recognizer, stream_info: StreamInfo | None = None) -> None:
-        """Update the hands object with new gesture recognition results."""
-        # Store the stream info
-        self.stream_info = stream_info
-
-        # If the recognizer didn't run yet, do nothing
-        if not (result := recognizer.last_result):
-            return
-
-        # Reset all hands first
-        self.reset()
-
-        if not result.hand_landmarks:
-            return
-
-        for hand_index, hand_landmarks in enumerate(result.hand_landmarks):
-            # Get handedness
-            handedness = None
-            if result.handedness and hand_index < len(result.handedness) and result.handedness[hand_index]:
-                handedness = Handedness.from_data(result.handedness[hand_index][0].category_name)
-
-            # Skip if handedness not detected
-            if not handedness:
-                continue
-
-            # Get the appropriate hand
-            hand = self.left if handedness == Handedness.LEFT else self.right
-
-            # Get default gesture information
-            gesture_type = None
-            if (
-                hand_landmarks is not None
-                and result.gestures
-                and hand_index < len(result.gestures)
-                and result.gestures[hand_index]
-            ):
-                if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.default.disable_all):
-                    gesture = result.gestures[hand_index][0]  # Get the top gesture
-                    gesture_type = (
-                        None
-                        if gesture.category_name in (None, "None", "Unknown")
-                        else Gestures(gesture.category_name)
-                    )
-
-            # Update hand data
-            hand.update(
-                default_gesture=gesture_type,
-                all_landmarks=hand_landmarks,
-                stream_info=stream_info,
-            )
-
-
-# -cos(radians(30)) means pointing up with a tolerance of 30 degrees
-VICTORY_GESTURE_DIRECTION = -cos(radians(30))
-SPOCK_GESTURE_DIRECTION = -cos(radians(20))
-STOP_GESTURE_DIRECTION = -cos(radians(20))
-GUN_GESTURE_THUMB_DIRECTION = -cos(radians(90))
+    from ...recognizer import StreamInfo
 
 
 class Hand(SmoothedBase):
@@ -179,6 +83,8 @@ class Hand(SmoothedBase):
             self.ring,
             self.pinky,
         )
+
+        self.gestures_detector = HandGesturesDetector(self)
 
         self.wrist_landmark: Landmark | None = None
         self._raw_default_gesture: Gestures | None = None
@@ -827,184 +733,4 @@ class Hand(SmoothedBase):
         Returns:
             Dictionary of detected gestures with weight 1.0 for each
         """
-        detected: GestureWeights = {}
-
-        thumb, index, middle, ring, pinky = self.thumb, self.index, self.middle, self.ring, self.pinky
-
-        # Check for Middle Finger gesture
-        # Middle finger is straight while index, ring, and pinky are not
-        if (
-            not self.is_gesture_disabled(Gestures.MIDDLE_FINGER)
-            and middle.is_straight
-            and index.is_not_straight_at_all
-            and ring.is_not_straight_at_all
-            and pinky.is_not_straight_at_all
-        ):
-            detected[Gestures.MIDDLE_FINGER] = 1.0
-
-        # Check for Victory gesture
-        # Index and middle fingers are straight, others are not
-        # (should be detected by default, but it's not always the case)
-        if (
-            not self.is_gesture_disabled(Gestures.VICTORY)
-            and self.main_direction is not None
-            and self.main_direction[1] < VICTORY_GESTURE_DIRECTION
-            and index.is_straight
-            and middle.is_straight
-            and ring.is_not_straight_at_all
-            and pinky.is_not_straight_at_all
-            and thumb.is_fully_bent
-            and not index.is_touching(middle)
-        ):
-            detected[Gestures.VICTORY] = 1.0
-
-        # Check for Spock gesture
-        # Index + middle together, ring+pinky together, forming a V.
-        # All four fingers must be straight, hand must be facing camera, thumb must be fully bent
-        if (
-            not self.is_gesture_disabled(Gestures.SPOCK)
-            and self.is_facing_camera
-            and self.main_direction is not None
-            and self.main_direction[1] < SPOCK_GESTURE_DIRECTION
-            and index.is_straight
-            and middle.is_straight
-            and ring.is_straight
-            and pinky.is_straight
-            and index.is_touching(middle)
-            and ring.is_touching(pinky)
-            and not middle.is_touching(ring)
-        ):
-            detected[Gestures.SPOCK] = 1.0
-
-        # Check for Rock gesture
-        # Index and pinky are straight, others are not. Hand must not be facing camera.
-        if (
-            not self.is_gesture_disabled(Gestures.ROCK)
-            and index.is_straight
-            and pinky.is_straight
-            and not thumb.is_straight
-            and middle.is_not_straight_at_all
-            and ring.is_not_straight_at_all
-        ):
-            detected[Gestures.ROCK] = 1.0
-
-        # Check for OK gesture
-        # Index is touching thumb, others fingers are straight. Hand must be facing camera.
-        if (
-            not self.is_gesture_disabled(Gestures.OK)
-            and self.is_facing_camera
-            and index.tip_on_thumb
-            and not middle.is_fully_bent
-            and not ring.is_fully_bent
-            and not pinky.is_fully_bent
-        ):
-            detected[Gestures.OK] = 1.0
-
-        # Check for Stop gesture
-        # All fingers are straight and touching each others. Thumb is ignored.
-        # Hand must be facing camera and pointing upward.
-        if (
-            not self.is_gesture_disabled(Gestures.STOP)
-            and self.is_facing_camera
-            and self.main_direction is not None
-            and self.main_direction[1] < STOP_GESTURE_DIRECTION
-            and index.is_straight
-            and middle.is_straight
-            and ring.is_straight
-            and pinky.is_straight
-            and self.all_adjacent_fingers_except_thumb_touching
-        ):
-            detected[Gestures.STOP] = 1.0
-
-        # Check for Pinch and Pinch Touch gestures
-        # Thumb is straight, fingers except index are not straight. Camera facing.
-        pinch_enabled = not self.is_gesture_disabled(Gestures.PINCH)
-        pinch_touch_enabled = not self.is_gesture_disabled(Gestures.PINCH_TOUCH)
-        if (
-            (pinch_enabled or pinch_touch_enabled)
-            and self.is_facing_camera
-            and thumb.is_nearly_straight_or_straight
-            and not middle.is_straight
-            and not ring.is_straight
-            and not pinky.is_straight
-        ):
-            if pinch_enabled:
-                detected[Gestures.PINCH] = 1.0
-            if pinch_touch_enabled and index.tip_on_thumb:
-                detected[Gestures.PINCH_TOUCH] = 1.0
-
-        # Check for Gun and Finger Gun gestures
-        # Thumb is straight or nearly, index and middle are straight and touching, ring and pinky are not.
-        gun_enabled = not self.is_gesture_disabled(Gestures.GUN)
-        finger_gun_enabled = not self.is_gesture_disabled(Gestures.FINGER_GUN)
-        if (
-            (gun_enabled or finger_gun_enabled)
-            and thumb.straight_direction is not None
-            and thumb.straight_direction[1] < GUN_GESTURE_THUMB_DIRECTION
-            and thumb.is_nearly_straight_or_straight
-            and index.is_nearly_straight_or_straight
-            and ring.is_not_straight_at_all
-            and pinky.is_not_straight_at_all
-        ):
-            if finger_gun_enabled:
-                detected[Gestures.FINGER_GUN] = 1.0
-            if gun_enabled and middle.is_nearly_straight_or_straight and index.is_touching(middle):
-                detected[Gestures.GUN] = 1.0
-
-        # Check for Air Tap gesture
-        # Index is straight or nearly straight and tip has been stable
-        if (
-            not self.is_gesture_disabled(Gestures.AIR_TAP)
-            and index.is_nearly_straight_or_straight
-            and middle.is_not_straight_at_all
-            and ring.is_not_straight_at_all
-            and pinky.is_not_straight_at_all
-            and index.is_tip_stable
-        ):
-            detected[Gestures.AIR_TAP] = 1.0
-
-        # Check for Wave gesture
-        # Open palm waving left-right
-        if (
-            not self.is_gesture_disabled(Gestures.WAVE)
-            and (self.default_gesture == Gestures.OPEN_PALM or Gestures.STOP in detected)
-            and self.is_waving
-        ):
-            detected[Gestures.WAVE] = 1.0
-
-        return detected
-
-
-class Palm(SmoothedBase):
-    _cached_props: ClassVar[tuple[str, ...]] = ("centroid",)
-
-    def __init__(self, hand: Hand, config: Config) -> None:
-        super().__init__()
-        self.config = config
-        self.hand = hand
-        self.landmarks: list[Landmark] = []
-
-    def reset(self) -> None:
-        """Reset the palm and clear all cached properties."""
-        # Call parent class reset for smoothed properties
-        super().reset()
-
-        # Clear cached properties
-        for prop in self._cached_props:
-            self.__dict__.pop(prop, None)
-
-    def update(self, landmarks: list[Landmark]) -> None:
-        """Update the palm with new landmarks."""
-        self.landmarks = landmarks
-
-    def _calc_centroid(self) -> tuple[float, float]:
-        """Calculate the centroid of palm landmarks."""
-        if not self.landmarks:
-            return 0.0, 0.0
-
-        centroid_x = sum(landmark.x for landmark in self.landmarks) / len(self.landmarks)
-        centroid_y = sum(landmark.y for landmark in self.landmarks) / len(self.landmarks)
-
-        return centroid_x, centroid_y
-
-    centroid = SmoothedProperty(_calc_centroid, CoordSmoother)
+        return self.gestures_detector.detect()

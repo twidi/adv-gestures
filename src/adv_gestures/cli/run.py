@@ -9,10 +9,11 @@ import cv2  # type: ignore[import-untyped]
 import numpy as np
 import typer
 
-from .. import Config, Hands, Recognizer, StreamInfo
 from ..cameras import CameraInfo
+from ..config import Config
 from ..drawing import draw_hands_marks_and_info
-from ..models import Thumb
+from ..models import Hands, Thumb
+from ..recognizer import Recognizer, StreamInfo
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,

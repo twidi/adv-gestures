@@ -19,7 +19,7 @@ from .mediapipe import (
     RunningMode,
     mp,
 )
-from .models import Hands
+from .models.hands import Hands
 from .models.landmarks import Landmark
 
 OpenCVImage: TypeAlias = cv2.typing.MatLike  # Type alias for images (numpy arrays)

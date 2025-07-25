@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, overloa
 from .gestures import Gestures
 
 if TYPE_CHECKING:
-    from .models import Box
-
+    from .models.hands.utils import Box
 
 # Smoothing configuration constants
 SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, TypeAlias
 import cv2  # type: ignore[import-untyped]
 
 from .gestures import Gestures
-from .models import Box, FingerIndex, Hand, Hands, Palm
-from .models.fingers import AnyFinger, Thumb
+from .models.fingers import AnyFinger, FingerIndex, Thumb
+from .models.hands import Box, Hand, Hands, Palm
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
