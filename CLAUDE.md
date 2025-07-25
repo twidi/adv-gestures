@@ -37,13 +37,20 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Performance metrics (FPS, latency)
 
 2. **Models** (`src/adv_gestures/models/`): Type-safe data structures
-   - `hands.py`: Hand class with finger tracking and gesture detection
    - `fingers.py`: Finger representations with landmark positions
    - `landmarks.py`: Hand landmark definitions
+   - `hands/` package: Refactored hand models
+     - `hand.py`: Single hand representation with finger tracking
+     - `hand_gestures.py`: Single hand gesture detectors (AIR_TAP, WAVE, etc.)
+     - `hands.py`: Collection of hands
+     - `hands_gestures.py`: Two-hands gesture detectors (PRAY)
+     - `palm.py`: Palm-related functionality
+     - `utils.py`: Hand utility functions
 
 3. **Gestures** (`src/adv_gestures/gestures.py`): Gesture definitions
    - Gesture enums (both MediaPipe built-in and custom)
    - DEFAULT_GESTURES and CUSTOM_GESTURES definitions
+   - TWO_HANDS_GESTURES for gestures requiring both hands
    - Gesture detection thresholds and configurations
 
 4. **Smoothing System** (`src/adv_gestures/smoothing.py`): Sophisticated EMA-based smoothing
@@ -88,11 +95,13 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 
 2. **Gesture Detection Flow**:
    - MediaPipe detects basic gestures (single gesture)
-   - Custom gestures detected via finger positions (multiple simultaneous)
+   - Custom gestures detected via gesture detector classes (multiple simultaneous)
    - All detected gestures are tracked with individual stability weights and durations
    - Override mechanism for incorrect MediaPipe detections
    - Each gesture smoothed independently for stability
    - Gesture weights normalized with strongest gesture at 1.0
+   - Gesture detectors organized as classes inheriting from `GestureDetector`
+   - Two-hands gestures require both hands to be detected and properly positioned
 
 3. **Performance Considerations**:
    - Smoothed properties cached per frame

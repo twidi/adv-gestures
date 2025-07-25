@@ -153,6 +153,11 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `PINCH_TOUCH` - Pinch + index and thumb touching
 - `GUN` - Gun gesture
 - `FINGER_GUN` - Finger gun (without middle finger)
+- `AIR_TAP` - Index finger held straight and still for a certain delay
+- `WAVE` - Open palm waving left-right motion
+
+### Two-Hands Gestures
+- `PRAY` - Both hands in a prayer position, palms together, fingers pointing up
 
 ## Multiple Gesture Detection
 
@@ -161,6 +166,8 @@ The library supports detecting multiple gestures simultaneously. This is useful 
 - Each detected gesture has a weight between 0.0 and 1.0
 - Weights are normalized so the strongest gesture always has weight 1.0
 - Weights indicate stability over time
+- Custom gestures are always detected regardless of default gesture detection
+- Two-hands gestures (like PRAY) require both hands to be detected
 
 ## Architecture
 
@@ -212,9 +219,16 @@ adv-gestures/
 │   │   └── tweak.py     # Configuration tweaking interface
 │   └── models/          # Data models
 │       ├── __init__.py  # Models package initialization
-│       ├── hands.py     # Hand representation
 │       ├── fingers.py   # Finger tracking
-│       └── landmarks.py # MediaPipe landmarks
+│       ├── landmarks.py # MediaPipe landmarks
+│       └── hands/       # Hand models package
+│           ├── __init__.py  # Hands package initialization
+│           ├── hand.py      # Single hand representation
+│           ├── hand_gestures.py  # Single hand gesture detectors
+│           ├── hands.py     # Hands collection
+│           ├── hands_gestures.py # Two-hands gesture detectors
+│           ├── palm.py      # Palm-related functionality
+│           └── utils.py     # Hand utility functions
 ├── Makefile            # Development commands
 └── pyproject.toml      # Project configuration
 ```
