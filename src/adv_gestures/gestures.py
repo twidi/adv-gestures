@@ -22,6 +22,7 @@ class Gestures(str, Enum):
     PINCH_TOUCH = "Pinch_Touch"  # Pinch with thumb and index touching
     GUN = "Gun"
     FINGER_GUN = "Finger_Gun"  # Gun without the middle finger
+    AIR_TAP = "Air_Tap"  # Index finger held straight and still for 2 seconds
 
 
 DEFAULT_GESTURES = {

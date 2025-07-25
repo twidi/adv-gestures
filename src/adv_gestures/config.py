@@ -44,6 +44,11 @@ class ThumbStraightnessConfig(BaseFingerStraightnessConfig):
     max_deviation_for_zero_score: float = Field(0.15, description="Deviation magnitude that results in zero score")
 
 
+class IndexTipStabilityConfig(BaseModel):
+    duration: float = Field(1.0, description="Duration in seconds to check for tip stability")
+    threshold: float = Field(0.01, description="Maximum movement threshold in normalized coordinates")
+
+
 class BaseFingerConfig(BaseModel):
     fully_bent_max_angle_degrees: float = Field(
         60.0, description="Max angle (degrees) for a finger to be considered fully bent"
@@ -58,6 +63,13 @@ class FingerConfig(BaseFingerConfig):
     )
     thumb_distance_relative_threshold: float = Field(
         0.7, description="Relative distance threshold for thumb touch detection"
+    )
+
+
+class IndexConfig(FingerConfig):
+    tip_stability: IndexTipStabilityConfig = Field(
+        default_factory=lambda: IndexTipStabilityConfig(),
+        description="Configuration for index tip stability detection",
     )
 
 
@@ -125,7 +137,7 @@ class HandsConfig(BaseModel):
         default_factory=lambda: ThumbConfig(),
         description="Configuration for thumb detection",
     )
-    index: FingerConfig = Field(default_factory=lambda: FingerConfig(), description="Configuration for index finger")
+    index: IndexConfig = Field(default_factory=lambda: IndexConfig(), description="Configuration for index finger")
     middle: FingerConfig = Field(
         default_factory=lambda: FingerConfig(), description="Configuration for middle finger"
     )

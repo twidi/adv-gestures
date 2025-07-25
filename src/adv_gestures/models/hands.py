@@ -804,6 +804,18 @@ class Hand(SmoothedBase):
             if gun_enabled and middle.is_nearly_straight_or_straight and index.is_touching(middle):
                 detected[Gestures.GUN] = 1.0
 
+        # Check for Air Tap gesture
+        # Index is straight or nearly straight and tip has been stable
+        if (
+            not self.is_gesture_disabled(Gestures.AIR_TAP)
+            and index.is_nearly_straight_or_straight
+            and middle.is_not_straight_at_all
+            and ring.is_not_straight_at_all
+            and pinky.is_not_straight_at_all
+            and index.is_tip_stable
+        ):
+            detected[Gestures.AIR_TAP] = 1.0
+
         return detected
 
 
