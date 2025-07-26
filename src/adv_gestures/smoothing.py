@@ -116,32 +116,29 @@ class CoordSmoother:
 
     def __init__(
         self,
-        dimensions: int = 2,
         window: float = SMOOTHING_WINDOW,
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
-        self.dimensions = dimensions
-        self.smoothers = [OptionalNumberSmoother(window, ema_alpha) for _ in range(dimensions)]
-        self._last_raw: tuple[float, ...] | None = None
+        self.smoothers = [OptionalNumberSmoother(window, ema_alpha) for _ in range(2)]
+        self._last_raw: tuple[float, float] | None = None
 
-    def update(self, coord: tuple[float, ...] | None) -> tuple[float, ...] | None:
+    def update(self, coord: tuple[float, float] | None) -> tuple[float, float] | None:
         """Update with new coordinate and return smoothed result."""
 
-        if coord is not None and len(coord) != self.dimensions:
-            raise ValueError(f"Expected {self.dimensions} dimensions, got {len(coord)}")
+        if coord is not None and len(coord) != 2:
+            raise ValueError(f"Expected 2 dimensions, got {len(coord)}")
 
         self._last_raw = coord
 
         # Update each dimension
         results = tuple(
-            s.update(v)
-            for s, v in zip(self.smoothers, ((None,) * self.dimensions) if coord is None else coord, strict=True)
+            s.update(v) for s, v in zip(self.smoothers, (None, None) if coord is None else coord, strict=True)
         )
 
-        return None if None in results else cast(tuple[float, ...], results)
+        return None if None in results else cast(tuple[float, float], results)
 
     @property
-    def raw(self) -> tuple[float, ...] | None:
+    def raw(self) -> tuple[float, float] | None:
         """Get the last raw (unsmoothed) coordinate."""
         return self._last_raw
 
@@ -154,8 +151,8 @@ class BoxSmoother:
         window: float = SMOOTHING_WINDOW,
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
     ):
-        self.min_smoother = CoordSmoother(2, window, ema_alpha)
-        self.max_smoother = CoordSmoother(2, window, ema_alpha)
+        self.min_smoother = CoordSmoother(window, ema_alpha)
+        self.max_smoother = CoordSmoother(window, ema_alpha)
         self._last_raw: Box | None = None
 
     def update(self, box: "Box | None") -> "Box | None":

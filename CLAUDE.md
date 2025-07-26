@@ -40,10 +40,11 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - `fingers.py`: Finger representations with landmark positions
    - `landmarks.py`: Hand landmark definitions
    - `hands/` package: Refactored hand models
+     - `base_gestures.py`: Unified base class for all gesture detectors (stateless and stateful)
      - `hand.py`: Single hand representation with finger tracking
      - `hand_gestures.py`: Single hand gesture detectors (AIR_TAP, WAVE, etc.)
      - `hands.py`: Collection of hands
-     - `hands_gestures.py`: Two-hands gesture detectors (PRAY)
+     - `hands_gestures.py`: Two-hands gesture detectors (PRAY, CLAP)
      - `palm.py`: Palm-related functionality
      - `utils.py`: Hand utility functions
 
@@ -100,12 +101,16 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - Override mechanism for incorrect MediaPipe detections
    - Each gesture smoothed independently for stability
    - Gesture weights normalized with strongest gesture at 1.0
-   - Gesture detectors organized as classes inheriting from `GestureDetector`
+   - Gesture detectors organized as classes inheriting from `BaseGestureDetector`
    - Two-hands gestures require both hands to be detected and properly positioned
-   - Stateful gestures (e.g., CLAP) use `StatefulGestureDetector` base class for:
-     - Tracking gesture state over time
-     - Post-detection period (showing gesture after it ends)
-     - Min/max duration validation
+   - Stateful gestures (e.g., CLAP) controlled by `stateful` class attribute
+   - BaseGestureDetector provides unified functionality:
+     - Automatic registration of gesture detectors via `__init_subclass__`
+     - Pre-matching checks with `main_direction_range`
+     - Stateful gesture support with `min_gesture_duration`, `max_gesture_duration`, `post_detection_duration`
+     - Direction matching utilities for hands and fingers
+   - HandGesturesDetector extends BaseGestureDetector for single-hand gestures
+   - TwoHandsGesturesDetector extends BaseGestureDetector for two-hands gestures
 
 3. **Performance Considerations**:
    - Smoothed properties cached per frame

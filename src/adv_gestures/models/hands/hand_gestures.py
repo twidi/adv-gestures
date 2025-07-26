@@ -1,50 +1,39 @@
 from __future__ import annotations
 
-from math import cos, radians
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from ...gestures import CUSTOM_GESTURES, Gestures
 from ...smoothing import GestureWeights
 from ..fingers import IndexFinger, MiddleFinger, PinkyFinger, RingFinger, Thumb
+from .base_gestures import BaseGestureDetector, DirectionMatcher, up_with_tolerance
 
 if TYPE_CHECKING:
     from .hand import Hand
 
 
-def up_with_tolerance(angle_deg: float) -> float:
-    """Calculate the cosine of an angle in radians for a given degree with a tolerance."""
-    return -cos(radians(angle_deg))
+class HandGesturesDetector(BaseGestureDetector["Hand"]):
+    gestures_set = CUSTOM_GESTURES
 
+    facing_camera: ClassVar[bool | None] = None
 
-class GestureDetector:
-    gesture: ClassVar[Gestures]
-    hand: Hand
+    def __init__(self, obj: Hand) -> None:
+        super().__init__(obj)
+        self.hand = obj
+        self.thumb = obj.thumb
+        self.index = obj.index
+        self.middle = obj.middle
+        self.ring = obj.ring
+        self.pinky = obj.pinky
 
-    by_gesture: ClassVar[dict[Gestures, type[GestureDetector]]] = {}
+    def matches_main_direction(self, main_direction_range: DirectionMatcher) -> bool:
+        return self.hand_matches_direction(self.hand, main_direction_range)
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if cls.gesture in GestureDetector.by_gesture:
-            raise ValueError(f"Gesture {cls.gesture} already has a detector")
-        GestureDetector.by_gesture[cls.gesture] = cls
-
-    def __init__(self, hand: Hand) -> None:
-        super().__init__()
-        self.hand = hand
-        self.thumb = hand.thumb
-        self.index = hand.index
-        self.middle = hand.middle
-        self.ring = hand.ring
-        self.pinky = hand.pinky
-
-    def detect(self, detected: GestureWeights) -> None:
-        if self.hand.is_gesture_disabled(self.gesture):
-            return
-        if not self.matches(
+    def _matches(self, detected: GestureWeights) -> bool:
+        if self.facing_camera is not None and self.hand.is_facing_camera != self.facing_camera:
+            return False
+        return self.matches(
             self.hand, self.hand.thumb, self.hand.index, self.hand.middle, self.hand.ring, self.hand.pinky, detected
-        ):
-            return
-        detected[self.gesture] = 1.0
+        )
 
     def matches(
         self,
@@ -59,28 +48,7 @@ class GestureDetector:
         raise NotImplementedError("This method should be implemented in subclasses.")
 
 
-class HandGesturesDetector:
-    def __init__(self, hand: Hand) -> None:
-        self.hand = hand
-        self.detectors = [detector(hand) for detector in GestureDetector.by_gesture.values()]
-
-    def detect(self) -> GestureWeights:
-        detected: GestureWeights = {}
-        for detector in self.detectors:
-            detector.detect(detected)
-        return detected
-
-    @staticmethod
-    def _ensure_all_detectors_registered() -> None:
-        """Ensure that all custom gestures have detectors registered."""
-        registered = set(GestureDetector.by_gesture.keys())
-        if registered != CUSTOM_GESTURES:
-            raise ValueError(
-                f"Not all custom gestures have detectors registered. Missing: {CUSTOM_GESTURES - registered}"
-            )
-
-
-class MiddleFingerDetector(GestureDetector):
+class MiddleFingerDetector(HandGesturesDetector):
     gesture = Gestures.MIDDLE_FINGER
 
     def matches(
@@ -101,10 +69,10 @@ class MiddleFingerDetector(GestureDetector):
         )
 
 
-class VictoryDetector(GestureDetector):
+class VictoryDetector(HandGesturesDetector):
     # (should be detected as default gesture, but it's not always the case)
     gesture = Gestures.VICTORY
-    main_direction_range: ClassVar[float] = up_with_tolerance(30)
+    main_direction_range = up_with_tolerance(30)
 
     def matches(
         self,
@@ -117,9 +85,7 @@ class VictoryDetector(GestureDetector):
         detected: GestureWeights,
     ) -> bool:
         return (
-            hand.main_direction is not None
-            and hand.main_direction[1] < self.main_direction_range
-            and index.is_straight
+            index.is_straight
             and middle.is_straight
             and ring.is_not_straight_at_all
             and pinky.is_not_straight_at_all
@@ -128,9 +94,10 @@ class VictoryDetector(GestureDetector):
         )
 
 
-class SpockDetector(GestureDetector):
+class SpockDetector(HandGesturesDetector):
     gesture = Gestures.SPOCK
-    main_direction_range: ClassVar[float] = up_with_tolerance(20)
+    main_direction_range = up_with_tolerance(20)
+    facing_camera = True
 
     def matches(
         self,
@@ -143,10 +110,7 @@ class SpockDetector(GestureDetector):
         detected: GestureWeights,
     ) -> bool:
         return (
-            hand.is_facing_camera
-            and hand.main_direction is not None
-            and hand.main_direction[1] < self.main_direction_range
-            and index.is_straight
+            index.is_straight
             and middle.is_straight
             and ring.is_straight
             and pinky.is_straight
@@ -156,7 +120,7 @@ class SpockDetector(GestureDetector):
         )
 
 
-class RockDetector(GestureDetector):
+class RockDetector(HandGesturesDetector):
     gesture = Gestures.ROCK
 
     def matches(
@@ -178,8 +142,9 @@ class RockDetector(GestureDetector):
         )
 
 
-class OkDetector(GestureDetector):
+class OkDetector(HandGesturesDetector):
     gesture = Gestures.OK
+    facing_camera = True
 
     def matches(
         self,
@@ -191,18 +156,13 @@ class OkDetector(GestureDetector):
         pinky: PinkyFinger,
         detected: GestureWeights,
     ) -> bool:
-        return (
-            hand.is_facing_camera
-            and index.tip_on_thumb
-            and not middle.is_fully_bent
-            and not ring.is_fully_bent
-            and not pinky.is_fully_bent
-        )
+        return index.tip_on_thumb and not middle.is_fully_bent and not ring.is_fully_bent and not pinky.is_fully_bent
 
 
-class StopDetector(GestureDetector):
+class StopDetector(HandGesturesDetector):
     gesture = Gestures.STOP
-    main_direction_range: ClassVar[float] = up_with_tolerance(20)
+    main_direction_range = up_with_tolerance(20)
+    facing_camera = True
 
     def matches(
         self,
@@ -215,10 +175,7 @@ class StopDetector(GestureDetector):
         detected: GestureWeights,
     ) -> bool:
         return (
-            hand.is_facing_camera
-            and hand.main_direction is not None
-            and hand.main_direction[1] < self.main_direction_range
-            and index.is_straight
+            index.is_straight
             and middle.is_straight
             and ring.is_straight
             and pinky.is_straight
@@ -226,7 +183,7 @@ class StopDetector(GestureDetector):
         )
 
 
-class PinchDetector(GestureDetector):
+class PinchDetector(HandGesturesDetector):
     gesture = Gestures.PINCH
 
     def matches(
@@ -263,9 +220,9 @@ class PinchTouchDetector(PinchDetector):
         return super().matches(hand, thumb, index, middle, ring, pinky, detected) and index.tip_on_thumb
 
 
-class FingerGunDetector(GestureDetector):
+class FingerGunDetector(HandGesturesDetector):
     gesture = Gestures.FINGER_GUN
-    main_direction_range: ClassVar[float] = up_with_tolerance(90)
+    thumb_direction_range: DirectionMatcher = up_with_tolerance(90)
 
     def matches(
         self,
@@ -278,8 +235,7 @@ class FingerGunDetector(GestureDetector):
         detected: GestureWeights,
     ) -> bool:
         return (
-            thumb.straight_direction is not None
-            and thumb.straight_direction[1] < self.main_direction_range
+            self.finger_matches_straight_direction(thumb, self.thumb_direction_range)
             and thumb.is_nearly_straight_or_straight
             and index.is_nearly_straight_or_straight
             and ring.is_not_straight_at_all
@@ -307,7 +263,7 @@ class GunDetector(FingerGunDetector):
         )
 
 
-class AirTapDetector(GestureDetector):
+class AirTapDetector(HandGesturesDetector):
     gesture = Gestures.AIR_TAP
 
     def matches(
@@ -329,7 +285,7 @@ class AirTapDetector(GestureDetector):
         )
 
 
-class WaveDetector(GestureDetector):
+class WaveDetector(HandGesturesDetector):
     gesture = Gestures.WAVE
 
     def matches(

@@ -225,6 +225,7 @@ adv-gestures/
 │       └── hands/       # Hand models package
 │           ├── __init__.py  # Hands package initialization
 │           ├── hand.py      # Single hand representation
+│           ├── base_gestures.py  # Base classes for gesture detectors
 │           ├── hand_gestures.py  # Single hand gesture detectors
 │           ├── hands.py     # Hands collection
 │           ├── hands_gestures.py # Two-hands gesture detectors
