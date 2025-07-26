@@ -4,7 +4,12 @@ from typing import TYPE_CHECKING
 
 from ...gestures import TWO_HANDS_GESTURES, Gestures
 from ...smoothing import GestureWeights
-from .base_gestures import BaseGestureDetector, DirectionMatcher, up_with_tolerance
+from .base_gestures import (
+    BaseGestureDetector,
+    DirectionMatcher,
+    StatefulMode,
+    up_with_tolerance,
+)
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -65,7 +70,7 @@ class PrayDetector(TwoHandsGesturesDetector):
 
 class ClapDetector(TwoHandsGesturesDetector):
     gesture = Gestures.CLAP
-    stateful = True
+    stateful_mode = StatefulMode.POST_DETECTION
     min_gesture_duration = 0.05  # Min duration for valid clap
     max_gesture_duration = 0.5  # Max duration for hands to be joined
     post_detection_duration = 0.2  # Show clap duration after separation
