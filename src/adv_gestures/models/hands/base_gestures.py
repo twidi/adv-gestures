@@ -55,6 +55,34 @@ class DetectionState:
     tracking_start: float
     state: StatefulDetectionState
     post_detection_start: float | None = None
+    data: dict[str, Any] | None = None  # Additional data for the detection, if needed
+
+    @property
+    def tracking_duration(self) -> float:
+        """Duration since tracking started."""
+        return time() - self.tracking_start
+
+    @property
+    def is_tracking(self) -> bool:
+        """Check if the detection is currently tracking."""
+        return self.state == StatefulDetectionState.TRACKING
+
+    @property
+    def is_active(self) -> bool:
+        """Check if the detection is currently active."""
+        return self.state == StatefulDetectionState.ACTIVE
+
+    @property
+    def is_post_detecting(self) -> bool:
+        """Check if the detection is in post-detecting state."""
+        return self.state == StatefulDetectionState.POST_DETECTING
+
+    @property
+    def post_detection_duration(self) -> float | None:
+        """Duration since post-detection started, if applicable."""
+        if self.post_detection_start is None:
+            return None
+        return time() - self.post_detection_start
 
 
 WithGesturesType = TypeVar("WithGesturesType", bound=WithGesturesProtocol)
@@ -71,15 +99,15 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     # For pre-matching checks
     main_direction_range: ClassVar[DirectionMatcher] = None
     # Only for stateful detectors
-    min_gesture_duration: ClassVar[float | None] = None
-    max_gesture_duration: ClassVar[float | None] = None
+    min_gesture_duration: float | None = None
+    max_gesture_duration: float | None = None
     post_detection_duration: ClassVar[float] = 0.0
     min_interval_between_detections: ClassVar[float | None] = None
 
     # Automatically defined for register classes
     _by_gesture: ClassVar[dict[Gestures, type[BaseGestureDetector[Any]]]]
     _register_classes: ClassVar[set[type[BaseGestureDetector[Any]]]] = set()
-    _detectors: list[BaseGestureDetector[WithGesturesType]] = []
+    detectors: dict[Gestures, BaseGestureDetector[WithGesturesType]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -128,18 +156,18 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     def __init__(self, obj: WithGesturesType) -> None:
         self.obj: WithGesturesType = obj
         if self.__class__ in BaseGestureDetector._register_classes:
-            self._detectors = [cls(obj) for cls in self._by_gesture.values()]
+            self.detectors = {gesture: cls(obj) for gesture, cls in self._by_gesture.items()}
 
         # only used for stateful detectors
         self.tracked_states: list[DetectionState] = []
         self._last_valid_detection_time: float | None = None
 
     def detect_all(self, detected: GestureWeights) -> None:
-        for detector in self._detectors:
+        for detector in self.detectors.values():
             detector.detect(detected)
 
     def detect(self, detected: GestureWeights | None = None) -> GestureWeights:
-        if self._detectors:
+        if self.detectors:
             detected = {} if detected is None else detected
             self.detect_all(detected)
             return detected
@@ -159,15 +187,10 @@ class BaseGestureDetector(Generic[WithGesturesType]):
             detected[self.gesture] = 1.0
 
     def detect_stateful(self, detected: GestureWeights) -> None:
-        self._stateful_cleanup_detections()
         self._stateful_update_detections(detected)
 
         if self._stateful_has_valid_detection():
             detected[self.gesture] = 1.0
-
-    def _stateful_cleanup_detections(self) -> None:
-        now = time()
-        self.tracked_states = [d for d in self.tracked_states if not self._stateful_is_expired(d, now)]
 
     def _stateful_is_expired(self, detection: DetectionState, now: float) -> bool:
         if detection.state == StatefulDetectionState.TRACKING:
@@ -193,6 +216,9 @@ class BaseGestureDetector(Generic[WithGesturesType]):
 
         # Update existing tracking detections
         for detection in self.tracked_states[:]:  # Copy list to allow modification during iteration
+            if self._stateful_is_expired(detection, now):
+                self.tracked_states.remove(detection)
+
             duration = now - detection.tracking_start
 
             if detection.state == StatefulDetectionState.TRACKING:
@@ -229,9 +255,14 @@ class BaseGestureDetector(Generic[WithGesturesType]):
                 for d in self.tracked_states
             )
 
-            if not any_active_tracking:
-                # Start new tracking
-                self.tracked_states.append(DetectionState(tracking_start=now, state=StatefulDetectionState.TRACKING))
+            if not any_active_tracking and self._stateful_can_start_tracking():
+                self._stateful_start_tracking(now)
+
+    def _stateful_start_tracking(self, now: float) -> DetectionState:
+        """Start a new tracking state."""
+        detection = DetectionState(tracking_start=now, state=StatefulDetectionState.TRACKING)
+        self.tracked_states.append(detection)
+        return detection
 
     def _stateful_has_valid_detection(self) -> bool:
         if self.stateful_mode == StatefulMode.POST_DETECTION:
@@ -246,6 +277,25 @@ class BaseGestureDetector(Generic[WithGesturesType]):
         if self._last_valid_detection_time is None:
             return True
         return time() - self._last_valid_detection_time >= self.min_interval_between_detections
+
+    def _stateful_can_start_tracking(self) -> bool:
+        """Check if a new tracking state can be started. Override for custom logic."""
+        return True
+
+    @property
+    def tracking_detections(self) -> list[DetectionState]:
+        """Get all currently tracking detections."""
+        return [d for d in self.tracked_states if d.is_tracking]
+
+    @property
+    def active_detections(self) -> list[DetectionState]:
+        """Get all currently active detections."""
+        return [d for d in self.tracked_states if d.is_active]
+
+    @property
+    def post_detecting_detections(self) -> list[DetectionState]:
+        """Get all currently post-detecting detections."""
+        return [d for d in self.tracked_states if d.is_post_detecting]
 
     def _matches_main_direction(self) -> bool:
         if self.main_direction_range is None:

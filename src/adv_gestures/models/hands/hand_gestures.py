@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-from math import acos, radians
+from math import acos, radians, sqrt
 from time import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from ...gestures import CUSTOM_GESTURES, Gestures
 from ...smoothing import GestureWeights, SmoothedBase, smoothed_bool
 from ..fingers import IndexFinger, MiddleFinger, PinkyFinger, RingFinger, Thumb
-from .base_gestures import BaseGestureDetector, DirectionMatcher, up_with_tolerance
+from .base_gestures import (
+    BaseGestureDetector,
+    DetectionState,
+    DirectionMatcher,
+    StatefulMode,
+    up_with_tolerance,
+)
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -269,6 +275,57 @@ class GunDetector(FingerGunDetector):
 
 class AirTapDetector(HandGesturesDetector):
     gesture = Gestures.AIR_TAP
+    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_duration = 0.5  # Report tap for 0.5s after movement
+
+    def __init__(self, obj: Hand) -> None:
+        super().__init__(obj)
+        self.config = obj.config.hands.index.tip_stability
+        self.min_gesture_duration: float = self.config.min_duration
+        self.max_gesture_duration: float = self.config.max_duration
+        self.movement_threshold: float = self.config.movement_threshold
+        self._last_removed_tip_position: tuple[float, float] | None = None
+
+    def _calc_is_tip_stable(self) -> bool:
+        """Check if the index tip has been stable for the configured duration."""
+        if not self.index._tip_position_history:
+            return False
+
+        current_time = time()
+        duration = self.min_gesture_duration
+
+        # Find positions within the duration window
+        cutoff_time = current_time - duration
+        positions_in_window = [(t, x, y) for t, x, y in self.index._tip_position_history if t >= cutoff_time]
+
+        if not positions_in_window or len(positions_in_window) < 2:
+            return False
+
+        # Check if we have data covering the full duration
+        if current_time - positions_in_window[0][0] < duration * 0.9:  # 90% of duration
+            return False
+
+        # Calculate maximum movement in the window
+        max_movement = 0.0
+        first_x, first_y = positions_in_window[0][1], positions_in_window[0][2]
+
+        for _, x, y in positions_in_window:
+            dx = x - first_x
+            dy = y - first_y
+            movement = sqrt(dx**2 + dy**2)
+            max_movement = max(max_movement, movement)
+
+        # Normalize max_movement from pixels to normalized coordinates
+        # We need the frame dimensions from the hand's stream_info
+        normalized_movement = max_movement
+        if self.hand.stream_info:
+            # Calculate diagonal to normalize the movement
+            diagonal = sqrt(self.hand.stream_info.width**2 + self.hand.stream_info.height**2)
+            normalized_movement = max_movement / diagonal
+
+        return normalized_movement < self.movement_threshold
+
+    is_tip_stable = smoothed_bool(_calc_is_tip_stable)
 
     def matches(
         self,
@@ -280,13 +337,100 @@ class AirTapDetector(HandGesturesDetector):
         pinky: PinkyFinger,
         detected: GestureWeights,
     ) -> bool:
+        self.reset()  # clear cache of is_tip_stable
         return (
             index.is_nearly_straight_or_straight
             and middle.is_not_straight_at_all
             and ring.is_not_straight_at_all
             and pinky.is_not_straight_at_all
-            and index.is_tip_stable
+            and self.is_tip_stable
         )
+
+    def _stateful_start_tracking(self, now: float) -> DetectionState:
+        detection = super()._stateful_start_tracking(now)
+        detection.data = {"tap_position": self.index.end_point}
+        return detection
+
+    def _stateful_update_detections(self, detected: GestureWeights) -> None:
+        """Override to store tap position in detection state data."""
+
+        # Track tip position when removing a tracking due to max duration
+        now = time()
+        for detection in self.tracking_detections:
+            if self._stateful_is_expired(detection, now):
+                self._last_removed_tip_position = detection.data["tap_position"]  # type: ignore[index]  # data defined in _stateful_start_tracking
+                break
+
+        # Effectively update detections
+        super()._stateful_update_detections(detected)
+
+        # Update tap position for all tracking states
+        if self.index.end_point is not None:
+            tap_position = self.index.end_point
+            for detection in self.tracking_detections:
+                # Only update TRACKING, because POST_DETECTING states keep their last position
+                detection.data["tap_position"] = tap_position  # type: ignore[index]  # data defined in _stateful_start_tracking
+                break
+
+    def _stateful_can_start_tracking(self) -> bool:
+        """Don't start new tracking if we removed one at same position due to max duration."""
+        if self._last_removed_tip_position is None:
+            return True
+
+        # Check if tip has moved from the last removed position
+        if not self.index.landmarks:
+            # No current position, allow tracking
+            # self._last_removed_tip_position = None
+            return True
+
+        tip = self.index.landmarks[-1]
+        current_x, current_y = tip.x, tip.y
+        last_x, last_y = self._last_removed_tip_position
+
+        # Calculate movement distance (in normalized coordinates)
+        dx = current_x - last_x
+        dy = current_y - last_y
+        movement = sqrt(dx**2 + dy**2)
+        diagonal = sqrt(self.hand.stream_info.width**2 + self.hand.stream_info.height**2)  # type: ignore[union-attr]
+        normalized_movement = movement / diagonal
+
+        # If finger hasn't moved beyond threshold, prevent new tracking
+        if normalized_movement < self.movement_threshold:
+            return False
+
+        # Finger moved, allow new tracking and reset
+        self._last_removed_tip_position = None
+        return True
+
+    @property
+    def tip_position(self) -> tuple[int, int] | None:
+        """Get the current tap position for visualization."""
+        # First, look for POST_DETECTING states (oldest first)
+
+        if post_detecting_states := self.post_detecting_detections:
+            # Get the oldest POST_DETECTING state
+            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
+            return cast(tuple[int, int], oldest.data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
+
+        # Otherwise, look for TRACKING states
+        if tracking_states := self.tracking_detections:
+            # Get the first tracking state
+            return cast(tuple[int, int], tracking_states[0].data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
+
+        return None
+
+    @property
+    def tap_state(self) -> str | None:
+        """Get the current tap state: 'detected' for post-detection, 'detecting' for tracking, None otherwise."""
+        # First, look for POST_DETECTING states (priority)
+        if self.post_detecting_detections:
+            return "detected"
+
+        # Otherwise, look for TRACKING states
+        if self.tracking_detections:
+            return "detecting"
+
+        return None
 
 
 class WaveDetector(HandGesturesDetector):

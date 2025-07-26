@@ -56,7 +56,6 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         "tip_direction",
         "tip_on_thumb",
         "touching_adjacent_fingers",
-        "is_tip_stable",
     )
 
     index: ClassVar[FingerIndex]
@@ -515,48 +514,6 @@ class IndexFinger(OtherFinger):
             cutoff_time = current_time - 5.0
             while self._tip_position_history and self._tip_position_history[0][0] < cutoff_time:
                 self._tip_position_history.popleft()
-
-    def _calc_is_tip_stable(self) -> bool:
-        """Check if the tip has been stable for the configured duration."""
-        if not self._tip_position_history:
-            return False
-
-        current_time = time()
-        duration = self.finger_config.tip_stability.duration
-        threshold = self.finger_config.tip_stability.threshold
-
-        # Find positions within the duration window
-        cutoff_time = current_time - duration
-        positions_in_window = [(t, x, y) for t, x, y in self._tip_position_history if t >= cutoff_time]
-
-        if not positions_in_window or len(positions_in_window) < 2:
-            return False
-
-        # Check if we have data covering the full duration
-        if current_time - positions_in_window[0][0] < duration * 0.9:  # 90% of duration
-            return False
-
-        # Calculate maximum movement in the window
-        max_movement = 0.0
-        first_x, first_y = positions_in_window[0][1], positions_in_window[0][2]
-
-        for _, x, y in positions_in_window:
-            dx = x - first_x
-            dy = y - first_y
-            movement = sqrt(dx**2 + dy**2)
-            max_movement = max(max_movement, movement)
-
-        # Normalize max_movement from pixels to normalized coordinates
-        # We need the frame dimensions from the hand's stream_info
-        normalized_movement = max_movement
-        if self.hand.stream_info:
-            # Calculate diagonal to normalize the movement
-            diagonal = sqrt(self.hand.stream_info.width**2 + self.hand.stream_info.height**2)
-            normalized_movement = max_movement / diagonal
-
-        return normalized_movement < threshold
-
-    is_tip_stable = smoothed_bool(_calc_is_tip_stable)
 
 
 class MiddleFinger(OtherFinger):

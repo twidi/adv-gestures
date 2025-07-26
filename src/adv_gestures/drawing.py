@@ -1,11 +1,12 @@
 from math import sqrt
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import cv2  # type: ignore[import-untyped]
 
 from .gestures import Gestures
 from .models.fingers import AnyFinger, FingerIndex, Thumb
 from .models.hands import Box, Hand, Hands, Palm
+from .models.hands.hand_gestures import AirTapDetector
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -139,6 +140,25 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
             color=color,
             thickness=2,
         )
+
+    # Draw air tap indicator
+    air_tap_detector = cast(AirTapDetector, hand.gestures_detector.detectors[Gestures.AIR_TAP])
+    if (air_tap_state := air_tap_detector.tap_state) is not None:
+        # if tip_state is not None, tip_position is set
+        air_tap_x, air_tap_y = cast(tuple[float, float], air_tap_detector.tip_position)
+
+        # Calculate circle radius based on frame width (approximately 2% of width)
+        frame_width = image.shape[1]
+        radius = int(frame_width * 0.02)
+
+        # Choose color based on tap state
+        if air_tap_state == "detected":
+            color = (255, 0, 255)  # Magenta for detected (post-detection)
+        else:  # "detecting"
+            color = (255, 100, 0)  # Blue for detecting (tracking)
+
+        # Draw circle (unfilled, just the border)
+        cv2.circle(image, (int(air_tap_x), int(air_tap_y)), radius, color, 2)
 
     return image
 
