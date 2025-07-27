@@ -105,19 +105,20 @@ class Landmark(NamedTuple):
     z_normalized: float | None
 
     @classmethod
-    def from_normalized(cls, mp_landmark: NormalizedLandmark, width: int, height: int) -> Landmark:
+    def from_normalized(cls, mp_landmark: NormalizedLandmark, width: int, height: int, mirroring: bool) -> Landmark:
         """Create a Landmark from MediaPipe's NormalizedLandmark.
 
         Args:
             mp_landmark: MediaPipe landmark with normalized coordinates
             width: Image width in pixels
             height: Image height in pixels
+            mirroring: Whether to mirror the X coordinate (for left-handed users)
 
         Returns:
             Landmark with pixel coordinates
         """
         return cls(
-            x=int(round(mp_landmark.x * width)),
+            x=int(round((mp_landmark.x if not mirroring else 1 - mp_landmark.x) * width)),
             y=int(round(mp_landmark.y * height)),
             x_normalized=mp_landmark.x,
             y_normalized=mp_landmark.y,

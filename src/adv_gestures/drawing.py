@@ -385,14 +385,12 @@ def draw_finger_marks(finger: AnyFinger, image: OpenCVImage) -> OpenCVImage:
     return image
 
 
-def draw_hands_marks_and_info(
-    hands: Hands, stream_info: "StreamInfo", frame: OpenCVImage, mirror_hands: bool = False
-) -> OpenCVImage:
+def draw_hands_marks_and_info(hands: Hands, stream_info: "StreamInfo", frame: OpenCVImage) -> OpenCVImage:
     """Draw hands preview on frame and return the modified frame."""
-    frame = draw_hands_marks(hands, frame)
-
-    if mirror_hands:
+    if stream_info.mirroring:
         frame = cv2.flip(frame, 1)
+
+    frame = draw_hands_marks(hands, frame)
 
     frame_height = frame.shape[0]
     frame_width = frame.shape[1]

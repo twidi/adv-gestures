@@ -40,10 +40,12 @@ class Recognizer:
         "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task"
     )
 
-    def __init__(self, model_path: str, use_gpu: bool = True) -> None:
+    def __init__(self, model_path: str, use_gpu: bool = True, mirroring: bool = False) -> None:
         self.last_result: RecognizerResult | None = None
 
         self.check_model(model_path)
+
+        self.mirroring = mirroring
 
         self.recognizer: GestureRecognizer = GestureRecognizer.create_from_options(
             GestureRecognizerOptions(
@@ -90,7 +92,10 @@ class Recognizer:
             gestures=result.gestures,
             handedness=result.handedness,
             hand_landmarks=[  # Convert MediaPipe landmarks to our Landmark model
-                [Landmark.from_normalized(landmark, input_image.width, input_image.height) for landmark in landmarks]
+                [
+                    Landmark.from_normalized(landmark, input_image.width, input_image.height, self.mirroring)
+                    for landmark in landmarks
+                ]
                 for landmarks in result.hand_landmarks
             ],
             timestamp=timestamp_ms / 1000,  # Convert milliseconds to seconds
@@ -152,6 +157,7 @@ class Recognizer:
                 latency=latency,
                 height=mp_image.height,
                 width=mp_image.width,
+                mirroring=self.mirroring,
             )
 
             # Update hands with stream info
@@ -190,6 +196,7 @@ class StreamInfo(NamedTuple):
     latency: float  # Time since last result (current time - last result timestamp)
     width: int  # Width of the image
     height: int  # Height of the image
+    mirroring: bool = False  # Whether the recognition results are for a mirrored output
 
 
 T = TypeVar("T")

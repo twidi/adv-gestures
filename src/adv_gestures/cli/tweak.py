@@ -1378,7 +1378,7 @@ def run_opencv_thread(
     try:
         # Create gesture recognizer with context manager
         with Recognizer(
-            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task"
+            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task", mirroring=mirror
         ) as recognizer:
             print("Gesture recognizer loaded successfully")
             recognizer_ready.set()  # Signal that recognizer is ready
@@ -1389,7 +1389,7 @@ def run_opencv_thread(
                 if stop_event.is_set():
                     break
 
-                frame = draw_hands_marks_and_info(hands, stream_info, frame, mirror)
+                frame = draw_hands_marks_and_info(hands, stream_info, frame)
                 cv2.imshow(cast(str, window_name), frame)
 
                 # Check for key press (non-blocking)

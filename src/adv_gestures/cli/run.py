@@ -159,7 +159,7 @@ def run_gestures(
     try:
         # Create gesture recognizer with context manager
         with Recognizer(
-            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task"
+            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task", mirroring=mirror
         ) as recognizer:
             print("Gesture recognizer loaded successfully")
             if show_preview:
@@ -167,7 +167,7 @@ def run_gestures(
 
             for frame, stream_info, _ in recognizer.handle_opencv_capture(cap, hands):
                 if show_preview:
-                    frame = draw_hands_marks_and_info(hands, stream_info, frame, mirror)
+                    frame = draw_hands_marks_and_info(hands, stream_info, frame)
                 else:
                     print_hands_info(hands, stream_info)
 
