@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from math import cos, radians
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias, TypeVar
 
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
     from .hand import Hand
 
 
-DirectionMatcher: TypeAlias = tuple[tuple[float, float] | None, tuple[float, float] | None] | None
+Range: TypeAlias = tuple[float | None, float | None]
 
 
 class StatefulMode(enum.Enum):
@@ -22,21 +21,15 @@ class StatefulMode(enum.Enum):
     CONTINUOUS = "continuous"  # Send detection during gesture (e.g., WAVE)
 
 
-def up_with_tolerance(angle_deg: float) -> DirectionMatcher:
-    # no check on x, and y must be up with `angle_deg` tolerance
-    return None, (-1, -cos(radians(angle_deg)))
-
-
-def direction_matches(direction: tuple[float, float] | None, direction_range: DirectionMatcher) -> bool:
-    if direction_range is None:
+def direction_matches(angle: float | None, range_: Range | None) -> bool:
+    if range_ is None:
         return True
-    if direction is None:
+    if angle is None:
         return False
-    for axe in (0, 1):  # Check x and y axes
-        if (_range := direction_range[axe]) is None:
-            continue
-        if not _range[0] <= direction[axe] <= _range[1]:
-            return False
+    if range_[0] is not None and angle < range_[0]:
+        return False
+    if range_[1] is not None and angle > range_[1]:
+        return False
     return True
 
 
@@ -96,8 +89,6 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     # To be defined for each final subclass
     gesture: ClassVar[Gestures]
     stateful_mode: ClassVar[StatefulMode | None] = None  # None = stateless detection
-    # For pre-matching checks
-    main_direction_range: ClassVar[DirectionMatcher] = None
     # Only for stateful detectors
     min_gesture_duration: float | None = None
     max_gesture_duration: float | None = None
@@ -297,33 +288,23 @@ class BaseGestureDetector(Generic[WithGesturesType]):
         """Get all currently post-detecting detections."""
         return [d for d in self.tracked_states if d.is_post_detecting]
 
-    def _matches_main_direction(self) -> bool:
-        if self.main_direction_range is None:
-            return True
-        return self.matches_main_direction(self.main_direction_range)
-
     @staticmethod
-    def hand_matches_direction(hand: Hand, main_direction_range: DirectionMatcher) -> bool:
+    def hand_matches_direction(hand: Hand, range_: Range | None) -> bool:
         """Check if the hand matches the main direction."""
-        return direction_matches(hand.main_direction, main_direction_range)
+        return direction_matches(hand.main_direction_angle, range_)
 
     @staticmethod
-    def finger_matches_straight_direction(finger: AnyFinger, straight_direction_range: DirectionMatcher) -> bool:
+    def finger_matches_straight_direction(finger: AnyFinger, range_: Range | None) -> bool:
         """Check if the finger matches the straight direction."""
-        return direction_matches(finger.straight_direction, straight_direction_range)
+        return direction_matches(finger.straight_direction_angle, range_)
 
     @staticmethod
-    def finger_matches_tip_direction(finger: AnyFinger, tip_direction_range: DirectionMatcher) -> bool:
+    def finger_matches_tip_direction(finger: AnyFinger, range_: Range | None) -> bool:
         """Check if the finger matches the tip direction."""
-        return direction_matches(finger.tip_direction, tip_direction_range)
-
-    def matches_main_direction(self, main_direction_range: DirectionMatcher) -> bool:
-        raise NotImplementedError("This method should be implemented in subclasses.")
+        return direction_matches(finger.tip_direction_angle, range_)
 
     def pre_matches(self, detected: GestureWeights) -> bool:
         """Pre-check before matching the gesture."""
-        if self.main_direction_range is not None and not self._matches_main_direction():
-            return False
         return True
 
     def _matches(self, detected: GestureWeights) -> bool:

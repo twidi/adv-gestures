@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from ...gestures import TWO_HANDS_GESTURES, Gestures
 from ...smoothing import GestureWeights
-from .base_gestures import (
-    BaseGestureDetector,
-    DirectionMatcher,
-    StatefulMode,
-    up_with_tolerance,
-)
+from .base_gestures import BaseGestureDetector, Range, StatefulMode, direction_matches
+from .utils import HandsDirectionalRelationship
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -18,6 +14,9 @@ if TYPE_CHECKING:
 
 class TwoHandsGesturesDetector(BaseGestureDetector["Hands"]):
     gestures_set = TWO_HANDS_GESTURES
+    main_directions_range: ClassVar[tuple[Range | None, Range | None] | None] = None
+    angle_diff_range: ClassVar[Range | None] = None
+    directional_relationships: ClassVar[set[HandsDirectionalRelationship] | None] = None
 
     def __init__(self, obj: Hands) -> None:
         super().__init__(obj)
@@ -25,18 +24,32 @@ class TwoHandsGesturesDetector(BaseGestureDetector["Hands"]):
         self.left = obj.left
         self.right = obj.right
 
-    def matches_main_direction(self, main_direction_range: DirectionMatcher) -> bool:
-        return self.hand_matches_direction(self.left, main_direction_range) and self.hand_matches_direction(
-            self.right, main_direction_range
-        )
-
     def pre_matches(self, detected: GestureWeights) -> bool:
-        return (
-            super().pre_matches(detected)
-            and bool(self.left and self.right)
-            and self.left_hand_in_good_shape()
-            and self.right_hand_in_good_shape()
-        )
+        if not super().pre_matches(detected):
+            return False
+        if not self.left or not self.right:
+            return False
+
+        if self.main_directions_range is not None:
+            if not self.hand_matches_direction(self.left, self.main_directions_range[0]):
+                return False
+            if not self.hand_matches_direction(self.right, self.main_directions_range[1]):
+                return False
+
+        if self.angle_diff_range is not None and not direction_matches(
+            self.hands.hands_direction_angle_diff, self.angle_diff_range
+        ):
+            return False
+
+        if self.directional_relationships is not None:
+            directional_relationship = self.hands.directional_relationship
+            if directional_relationship is None or directional_relationship not in self.directional_relationships:
+                return False
+
+        if not self.left_hand_in_good_shape() or not self.right_hand_in_good_shape():
+            return False
+
+        return True
 
     def hand_in_good_shape(self, hand: Hand) -> bool:
         raise NotImplementedError
@@ -56,7 +69,9 @@ class TwoHandsGesturesDetector(BaseGestureDetector["Hands"]):
 
 class PrayDetector(TwoHandsGesturesDetector):
     gesture = Gestures.PRAY
-    main_direction_range = up_with_tolerance(20)
+    main_directions_range = (70, 110), (70, 110)
+    angle_diff_range = None, 30
+    directional_relationships = {HandsDirectionalRelationship.PARALLEL, HandsDirectionalRelationship.CONVERGING}
 
     def hand_in_good_shape(self, hand: Hand) -> bool:
         return hand.is_showing_side and (
@@ -70,6 +85,9 @@ class PrayDetector(TwoHandsGesturesDetector):
 
 class ClapDetector(TwoHandsGesturesDetector):
     gesture = Gestures.CLAP
+    angle_diff_range = None, 30
+    directional_relationships = {HandsDirectionalRelationship.PARALLEL, HandsDirectionalRelationship.CONVERGING}
+
     stateful_mode = StatefulMode.POST_DETECTION
     min_gesture_duration = 0.05  # Min duration for valid clap
     max_gesture_duration = 0.5  # Max duration for hands to be joined

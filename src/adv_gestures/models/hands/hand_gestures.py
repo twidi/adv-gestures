@@ -10,9 +10,8 @@ from ..fingers import IndexFinger, MiddleFinger, PinkyFinger, RingFinger, Thumb
 from .base_gestures import (
     BaseGestureDetector,
     DetectionState,
-    DirectionMatcher,
+    Range,
     StatefulMode,
-    up_with_tolerance,
 )
 
 if TYPE_CHECKING:
@@ -23,6 +22,8 @@ class HandGesturesDetector(BaseGestureDetector["Hand"], SmoothedBase):
     gestures_set = CUSTOM_GESTURES
 
     facing_camera: ClassVar[bool | None] = None
+    showing_side: ClassVar[bool | None] = None
+    main_direction_range: ClassVar[Range | None] = None
 
     def __init__(self, obj: Hand) -> None:
         BaseGestureDetector.__init__(self, obj)
@@ -34,11 +35,21 @@ class HandGesturesDetector(BaseGestureDetector["Hand"], SmoothedBase):
         self.ring = obj.ring
         self.pinky = obj.pinky
 
-    def matches_main_direction(self, main_direction_range: DirectionMatcher) -> bool:
-        return self.hand_matches_direction(self.hand, main_direction_range)
+    def pre_matches(self, detected: GestureWeights) -> bool:
+        self.reset()  # clear cache of smoothed properties
+        if not super().pre_matches(detected):
+            return False
+        if self.facing_camera is not None and self.hand.is_facing_camera != self.facing_camera:
+            return False
+        if self.showing_side is not None and self.hand.is_showing_side != self.showing_side:
+            return False
+        if self.main_direction_range is not None and not self.hand_matches_direction(
+            self.hand, self.main_direction_range
+        ):
+            return False
+        return True
 
     def _matches(self, detected: GestureWeights) -> bool:
-        self.reset()  # clear cache of smoothed properties
         if self.facing_camera is not None and self.hand.is_facing_camera != self.facing_camera:
             return False
         return self.matches(
@@ -82,7 +93,7 @@ class MiddleFingerDetector(HandGesturesDetector):
 class VictoryDetector(HandGesturesDetector):
     # (should be detected as default gesture, but it's not always the case)
     gesture = Gestures.VICTORY
-    main_direction_range = up_with_tolerance(30)
+    main_direction_range = 60, 120
 
     def matches(
         self,
@@ -106,8 +117,9 @@ class VictoryDetector(HandGesturesDetector):
 
 class SpockDetector(HandGesturesDetector):
     gesture = Gestures.SPOCK
-    main_direction_range = up_with_tolerance(20)
+    main_direction_range = 70, 110
     facing_camera = True
+    showing_side = False
 
     def matches(
         self,
@@ -132,6 +144,7 @@ class SpockDetector(HandGesturesDetector):
 
 class RockDetector(HandGesturesDetector):
     gesture = Gestures.ROCK
+    showing_side = False
 
     def matches(
         self,
@@ -155,6 +168,8 @@ class RockDetector(HandGesturesDetector):
 class OkDetector(HandGesturesDetector):
     gesture = Gestures.OK
     facing_camera = True
+    showing_side = False
+    main_direction_range = 0, 180
 
     def matches(
         self,
@@ -171,7 +186,7 @@ class OkDetector(HandGesturesDetector):
 
 class StopDetector(HandGesturesDetector):
     gesture = Gestures.STOP
-    main_direction_range = up_with_tolerance(20)
+    main_direction_range = 70, 110
     facing_camera = True
 
     def matches(
@@ -232,7 +247,7 @@ class PinchTouchDetector(PinchDetector):
 
 class FingerGunDetector(HandGesturesDetector):
     gesture = Gestures.FINGER_GUN
-    thumb_direction_range: DirectionMatcher = up_with_tolerance(90)
+    thumb_direction_range: Range = 0, 180
 
     def matches(
         self,
@@ -255,6 +270,7 @@ class FingerGunDetector(HandGesturesDetector):
 
 class GunDetector(FingerGunDetector):
     gesture = Gestures.GUN
+    showing_side = False
 
     def matches(
         self,
@@ -435,8 +451,8 @@ class AirTapDetector(HandGesturesDetector):
 
 class WaveDetector(HandGesturesDetector):
     gesture = Gestures.WAVE
-    min_angle_deg = 2.5
-    min_angle_rad = radians(min_angle_deg)
+    min_movement_angle_deg = 2.5
+    min_movement_angle_rad = radians(min_movement_angle_deg)
 
     def _calc_hand_is_waving(self) -> bool:
         """Check if the hand is performing a waving motion (oscillating left-right movement)."""
@@ -528,7 +544,7 @@ class WaveDetector(HandGesturesDetector):
             angle2 = acos(dot2)
 
             # At least one angle should be significant
-            if angle1 >= self.min_angle_rad or angle2 >= self.min_angle_rad:
+            if angle1 >= self.min_movement_angle_rad or angle2 >= self.min_movement_angle_rad:
                 return True
 
         return False

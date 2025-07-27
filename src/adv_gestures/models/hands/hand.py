@@ -11,9 +11,10 @@ import numpy as np
 from ...config import Config
 from ...gestures import Gestures
 from ...smoothing import (
+    GESTURE_SMOOTHING_WINDOW,
     BoxSmoother,
     CoordSmoother,
-    GestureSmoother,
+    EnumSmoother,
     GestureWeights,
     MultiGestureSmoother,
     SmoothedBase,
@@ -49,6 +50,7 @@ class Hand(SmoothedBase):
         "all_adjacent_fingers_except_thumb_touching",
         "bounding_box",
         "pinch_box",
+        "main_direction_angle",
         # All adjacent finger pairs
         "thumb_index_spread_angle",
         "thumb_index_touching",
@@ -296,6 +298,26 @@ class Hand(SmoothedBase):
         return dx / magnitude, dy / magnitude
 
     main_direction = SmoothedProperty(_calc_main_direction, CoordSmoother)
+
+    def _calc_main_direction_angle(self) -> float | None:
+        """Calculate the angle of the main direction vector in degrees.
+        Returns angle in range [-180, 180] where:
+        - 0° = pointing right
+        - 90° = pointing up
+        - 180°/-180° = pointing left
+        - -90° = pointing down
+        """
+        direction = self.main_direction
+        if direction is None:
+            return None
+
+        dx, dy = direction
+        # Calculate angle in radians and convert to degrees
+        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = np.degrees(angle_rad)
+        return float(angle_deg)
+
+    main_direction_angle = smoothed_optional_float(_calc_main_direction_angle)
 
     def get_finger_spread_angle(
         self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger
@@ -556,7 +578,9 @@ class Hand(SmoothedBase):
             self._last_default_gesture = current
         return current
 
-    default_gesture = SmoothedProperty(_calc_default_gesture, GestureSmoother, default_value=None)
+    default_gesture = SmoothedProperty(
+        _calc_default_gesture, EnumSmoother[Gestures | None], window=GESTURE_SMOOTHING_WINDOW, default_value=None
+    )
 
     @property
     def default_gesture_duration(self) -> float:

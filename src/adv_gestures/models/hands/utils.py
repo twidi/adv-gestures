@@ -27,3 +27,17 @@ class Box(NamedTuple):
     min_y: float
     max_x: float
     max_y: float
+
+
+class HandsDirectionalRelationship(Enum):
+    """Enum representing the directional relationship between two hands."""
+
+    PARALLEL = "parallel"  # Hands pointing in the same direction (less than 1 degree difference)
+    INTERSECTING = "intersecting"  # Hand segments cross each other
+    CONVERGING = "converging"  # Hands pointing towards each other in front
+    LEFT_INTO_RIGHT = "left_into_right"  # Left hand pointing towards right hand
+    RIGHT_INTO_LEFT = "right_into_left"  # Right hand pointing towards left hand
+    DIVERGING_NORMAL = "diverging_normal"  # V shape with uncrossed wrists
+    DIVERGING_CROSSED = "diverging_crossed"  # >< shape with crossed wrists
+    DIVERGING_LEFT_BEHIND_RIGHT = "diverging_left_behind_right"  # |_ Left ray passes behind right wrist
+    DIVERGING_RIGHT_BEHIND_LEFT = "diverging_right_behind_left"  # _| Right ray passes behind left wrist

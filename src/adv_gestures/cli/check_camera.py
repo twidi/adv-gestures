@@ -59,8 +59,28 @@ def check_camera(
         if mirror:
             frame = cv2.flip(frame, 1)
 
-        # Add FPS text to frame
-        cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # Draw top banner with FPS info
+        frame_width = frame.shape[1]
+        header_height = 30
+        padding = 10
+
+        # Add semi-transparent black header
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (frame_width, header_height), (0, 0, 0), -1)
+        frame = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)
+
+        # Display FPS
+        fps_text = f"FPS: {fps:.2f}"
+        cv2.putText(
+            frame,
+            fps_text,
+            (padding, header_height - padding),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA,
+        )
 
         cv2.imshow(cast(str, window_name), frame)
 

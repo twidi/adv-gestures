@@ -51,9 +51,11 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         "is_straight",
         "is_nearly_straight",
         "straight_direction",
+        "straight_direction_angle",
         "is_fully_bent",
         "fold_angle",
         "tip_direction",
+        "tip_direction_angle",
         "tip_on_thumb",
         "touching_adjacent_fingers",
     )
@@ -217,6 +219,26 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
     tip_direction = SmoothedProperty(_calc_tip_direction, CoordSmoother)
 
+    def _calc_tip_direction_angle(self) -> float | None:
+        """Calculate the angle of the tip direction vector in degrees.
+        Returns angle in range [-180, 180] where:
+        - 0° = pointing right
+        - 90° = pointing up
+        - 180°/-180° = pointing left
+        - -90° = pointing down
+        """
+        direction = self.tip_direction
+        if direction is None:
+            return None
+
+        dx, dy = direction
+        # Calculate angle in radians and convert to degrees
+        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = np.degrees(angle_rad)
+        return float(angle_deg)
+
+    tip_direction_angle = smoothed_optional_float(_calc_tip_direction_angle)
+
     def _calc_straight_direction(self) -> tuple[float, float] | None:
         """Calculate the overall direction of the finger from base to tip.
         Returns a normalized vector (dx, dy) pointing from first to last point.
@@ -239,6 +261,26 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         return dx / magnitude, dy / magnitude
 
     straight_direction = SmoothedProperty(_calc_straight_direction, CoordSmoother)
+
+    def _calc_straight_direction_angle(self) -> float | None:
+        """Calculate the angle of the straight direction vector in degrees.
+        Returns angle in range [-180, 180] where:
+        - 0° = pointing right
+        - 90° = pointing up
+        - 180°/-180° = pointing left
+        - -90° = pointing down
+        """
+        direction = self.straight_direction
+        if direction is None:
+            return None
+
+        dx, dy = direction
+        # Calculate angle in radians and convert to degrees
+        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = np.degrees(angle_rad)
+        return float(angle_deg)
+
+    straight_direction_angle = smoothed_optional_float(_calc_straight_direction_angle)
 
     def _calc_is_fully_bent(self) -> bool:
         """Check if the finger is fully bent based on fold angle threshold."""

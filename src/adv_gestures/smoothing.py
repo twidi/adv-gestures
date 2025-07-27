@@ -210,26 +210,26 @@ class BooleanSmoother:
         return self._last_raw
 
 
-class GestureSmoother(Generic[T]):
-    """Smooths gesture transitions using exponentially weighted voting."""
+class EnumSmoother(Generic[T]):
+    """Smooths enum values transitions using exponentially weighted voting."""
 
     def __init__(
         self,
-        window: float = GESTURE_SMOOTHING_WINDOW,
+        window: float = SMOOTHING_WINDOW,
         ema_alpha: float = SMOOTHING_EMA_WEIGHT,
         default_value: T | None = None,
     ):
         self.window = window
         self.ema_alpha = ema_alpha
         self.history: deque[TimedValue[T]] = deque()
-        self.current_gesture = default_value
+        self.current_value = default_value
         self._last_raw = default_value
 
-    def update(self, gesture: T) -> T | None:
-        """Update with new gesture and return smoothed result."""
+    def update(self, value: T) -> T | None:
+        """Update with new value and return smoothed result."""
         now = time()
-        self._last_raw = gesture
-        self.history.append(TimedValue(gesture, now))
+        self._last_raw = value
+        self.history.append(TimedValue(value, now))
 
         # Clean old values outside the window
         cutoff = now - self.window
@@ -237,32 +237,32 @@ class GestureSmoother(Generic[T]):
             self.history.popleft()
 
         if not self.history:
-            return self.current_gesture
+            return self.current_value
 
         # Calculate exponentially weighted votes
-        weights_by_gesture: dict[T, float] = {}
+        weights_by_value: dict[T, float] = {}
 
         # Iterate from newest to oldest (reversed)
         for k, tv in enumerate(reversed(self.history)):
             weight = (1 - self.ema_alpha) ** k
-            if tv.value not in weights_by_gesture:
-                weights_by_gesture[tv.value] = 0.0
-            weights_by_gesture[tv.value] += weight
+            if tv.value not in weights_by_value:
+                weights_by_value[tv.value] = 0.0
+            weights_by_value[tv.value] += weight
 
-        # Find the gesture with maximum weight
-        if weights_by_gesture:
-            self.current_gesture = max(weights_by_gesture, key=weights_by_gesture.get)  # type: ignore[arg-type]
+        # Find the value with maximum weight
+        if weights_by_value:
+            self.current_value = max(weights_by_value, key=weights_by_value.get)  # type: ignore[arg-type]
 
-        return self.current_gesture
+        return self.current_value
 
     @property
     def raw(self) -> T | None:
-        """Get the last raw (unsmoothed) gesture."""
+        """Get the last raw (unsmoothed) value."""
         return self._last_raw
 
 
 # Type alias for gesture weights
-GestureWeights = dict["Gestures", float]
+GestureWeights = dict[Gestures, float]
 
 
 class MultiGestureSmoother:
