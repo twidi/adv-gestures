@@ -24,6 +24,7 @@ class Gestures(str, Enum):
     FINGER_GUN = "Finger_Gun"  # Gun without the middle finger
     AIR_TAP = "Air_Tap"  # Index finger held straight and still for 2 seconds
     WAVE = "Wave"  # Open palm waving left-right motion
+    SNAP = "Snap"  # Finger snap detected by before/after states
 
     # Hands gestures (gestures implying both hands)
     PRAY = "Pray"  # Both hands in a prayer position, palms together, fingers pointing up

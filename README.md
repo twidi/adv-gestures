@@ -155,6 +155,7 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `FINGER_GUN` - Finger gun (without middle finger)
 - `AIR_TAP` - Index finger held straight and still for a certain delay
 - `WAVE` - Open palm waving left-right motion
+- `SNAP` - Finger snapping
 
 ### Two-Hands Gestures
 - `PRAY` - Both hands in a prayer position, palms together, fingers pointing up

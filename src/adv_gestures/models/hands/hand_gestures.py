@@ -548,4 +548,70 @@ class WaveDetector(HandGesturesDetector):
         return (hand.default_gesture == Gestures.OPEN_PALM or Gestures.STOP in detected) and self.hand_is_waving
 
 
+class SnapDetector(HandGesturesDetector):
+    gesture = Gestures.SNAP
+    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_duration = 0.3  # Report snap for 0.3s after detection
+    max_transition_time = 0.5  # 500ms max between before and after states
+
+    def __init__(self, obj: Hand) -> None:
+        super().__init__(obj)
+        self._last_before_state_time: float | None = None
+
+    def _match_before_snap(self) -> bool:
+        """Check if hand is in pre-snap position."""
+        return (
+            self.ring.is_not_straight_at_all
+            and self.pinky.is_not_straight_at_all
+            and not self.index.is_fully_bent
+            and not self.index.is_nearly_straight_or_straight
+            and not self.middle.is_fully_bent
+            and not self.middle.is_nearly_straight_or_straight
+            and self.middle.tip_on_thumb
+        )
+
+    def _match_after_snap(self) -> bool:
+        """Check if hand is in post-snap position."""
+        return (
+            self.ring.is_not_straight_at_all
+            and self.pinky.is_not_straight_at_all
+            and self.middle.is_not_straight_at_all
+            and not self.index.is_fully_bent
+            and not self.index.is_nearly_straight_or_straight
+            and self.index.tip_on_thumb
+        )
+
+    def matches(
+        self,
+        hand: Hand,
+        thumb: Thumb,
+        index: IndexFinger,
+        middle: MiddleFinger,
+        ring: RingFinger,
+        pinky: PinkyFinger,
+        detected: GestureWeights,
+    ) -> bool:
+        current_time = time()
+
+        # Check if we're in the before state
+        if self._match_before_snap():
+            self._last_before_state_time = current_time
+            return False  # Not a snap yet
+
+        # Check if we're in the after state
+        if self._last_before_state_time is not None and self._match_after_snap():
+            # Check if we had a recent before state
+            if (
+                self._last_before_state_time is not None
+                and current_time - self._last_before_state_time <= self.max_transition_time
+            ):
+                # Reset to prevent repeated detections
+                self._last_before_state_time = None
+                return True
+
+            self._last_before_state_time = None
+
+        return False
+
+
 HandGesturesDetector._ensure_all_detectors_registered()
