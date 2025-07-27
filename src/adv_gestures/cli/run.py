@@ -49,8 +49,9 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
 
         handedness = hand.handedness.name if hand.handedness else "Unknown"
         facing = "PALM" if hand.is_facing_camera else "BACK"
+        angle = f" ({hand.main_direction_angle:.0f}°)" if hand.main_direction_angle is not None else ""
 
-        print(f"\n{handedness} Hand - {facing}")
+        print(f"\n{handedness} Hand - {facing}{angle}")
 
         # Show all active gestures with weights and durations
         if hand.gestures:
