@@ -105,4 +105,36 @@ class ClapDetector(TwoHandsGesturesDetector):
         return self.hands.hands_are_close
 
 
+class CrossedFlatDetector(TwoHandsGesturesDetector):
+    gesture = Gestures.CROSSED_FLAT
+    directional_relationships = {HandsDirectionalRelationship.DIVERGING_CROSSED}
+
+    def hand_in_good_shape(self, hand: Hand) -> bool:
+        return (
+            hand.index.is_nearly_straight_or_straight
+            and hand.middle.is_nearly_straight_or_straight
+            and hand.ring.is_nearly_straight_or_straight
+            and hand.pinky.is_nearly_straight_or_straight
+        )
+
+    def matches(self, hands: Hands, left: Hand, right: Hand, detected: GestureWeights) -> bool:
+        return True
+
+
+class CrossedFistsDetector(TwoHandsGesturesDetector):
+    gesture = Gestures.CROSSED_FISTS
+    directional_relationships = {HandsDirectionalRelationship.DIVERGING_CROSSED}
+
+    def hand_in_good_shape(self, hand: Hand) -> bool:
+        return (
+            hand.index.is_not_straight_at_all
+            and hand.middle.is_not_straight_at_all
+            and hand.ring.is_not_straight_at_all
+            and hand.pinky.is_not_straight_at_all
+        )
+
+    def matches(self, hands: Hands, left: Hand, right: Hand, detected: GestureWeights) -> bool:
+        return True
+
+
 TwoHandsGesturesDetector._ensure_all_detectors_registered()

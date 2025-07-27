@@ -29,6 +29,8 @@ class Gestures(str, Enum):
     # Hands gestures (gestures implying both hands)
     PRAY = "Pray"  # Both hands in a prayer position, palms together, fingers pointing up
     CLAP = "Clap"  # Hands joined briefly (less than 1 second) then separated
+    CROSSED_FLAT = "Crossed_Flat"  # Both hands crossed with fingers straight
+    CROSSED_FISTS = "Crossed_Fists"  # Both hands crossed with fingers in fist position
 
 
 DEFAULT_GESTURES: set[Gestures] = {
@@ -40,7 +42,7 @@ DEFAULT_GESTURES: set[Gestures] = {
     Gestures.VICTORY,
     Gestures.LOVE,
 }
-TWO_HANDS_GESTURES: set[Gestures] = {Gestures.PRAY, Gestures.CLAP}
+TWO_HANDS_GESTURES: set[Gestures] = {Gestures.PRAY, Gestures.CLAP, Gestures.CROSSED_FLAT, Gestures.CROSSED_FISTS}
 
 OVERRIDABLE_DEFAULT_GESTURES: set[Gestures] = {Gestures.VICTORY}
 
