@@ -141,6 +141,10 @@ class Hand(SmoothedBase):
         self._raw_default_gesture = default_gesture
         self.stream_info = stream_info
         if all_landmarks is None:
+            for finger in self.fingers:
+                finger.update(landmarks=[])
+            self._raw_custom_gestures = {}
+            self._direction_history.clear()
             return
 
         self.is_visible = True
@@ -180,7 +184,8 @@ class Hand(SmoothedBase):
     def _calc_is_facing_camera(self) -> bool:
         """Determine if the hand is showing its palm or back to the camera using cross product method."""
         if (
-            not self.handedness
+            not self.is_visible
+            or not self.handedness
             or not self.palm
             or len(self.palm.landmarks) < len(PALM_LANDMARKS)
             or not self.wrist_landmark
@@ -231,7 +236,7 @@ class Hand(SmoothedBase):
 
     def _calc_is_showing_side(self) -> bool:
         """Check if hand is showing its side (perpendicular to camera)."""
-        if not self.stream_info:
+        if not self.stream_info or not self.is_visible or not self.palm:
             return False
 
         # Get centroids of all fingers except thumb (indices 1-4)

@@ -28,6 +28,10 @@ class Palm(SmoothedBase):
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
 
+    def __bool__(self) -> bool:
+        """Check if the finger is visible and has landmarks."""
+        return len(self.landmarks) > 0
+
     def update(self, landmarks: list[Landmark]) -> None:
         """Update the palm with new landmarks."""
         self.landmarks = landmarks

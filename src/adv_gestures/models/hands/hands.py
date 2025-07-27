@@ -69,45 +69,52 @@ class Hands(SmoothedBase):
         # Reset all hands first
         self.reset()
 
-        if not result.hand_landmarks:
-            return
+        if result.hand_landmarks:
+            for hand_index, hand_landmarks in enumerate(result.hand_landmarks):
+                # Get handedness
+                handedness = None
+                if result.handedness and hand_index < len(result.handedness) and result.handedness[hand_index]:
+                    handedness = Handedness.from_data(result.handedness[hand_index][0].category_name)
 
-        for hand_index, hand_landmarks in enumerate(result.hand_landmarks):
-            # Get handedness
-            handedness = None
-            if result.handedness and hand_index < len(result.handedness) and result.handedness[hand_index]:
-                handedness = Handedness.from_data(result.handedness[hand_index][0].category_name)
+                # Skip if handedness not detected
+                if not handedness:
+                    continue
 
-            # Skip if handedness not detected
-            if not handedness:
-                continue
+                # Get the appropriate hand
+                hand = self.left if handedness == Handedness.LEFT else self.right
 
-            # Get the appropriate hand
-            hand = self.left if handedness == Handedness.LEFT else self.right
+                # Get default gesture information
+                gesture_type = None
+                if (
+                    hand_landmarks is not None
+                    and result.gestures
+                    and hand_index < len(result.gestures)
+                    and result.gestures[hand_index]
+                ):
+                    if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.default.disable_all):
+                        gesture = result.gestures[hand_index][0]  # Get the top gesture
+                        gesture_type = (
+                            None
+                            if gesture.category_name in (None, "None", "Unknown")
+                            else Gestures(gesture.category_name)
+                        )
 
-            # Get default gesture information
-            gesture_type = None
-            if (
-                hand_landmarks is not None
-                and result.gestures
-                and hand_index < len(result.gestures)
-                and result.gestures[hand_index]
-            ):
-                if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.default.disable_all):
-                    gesture = result.gestures[hand_index][0]  # Get the top gesture
-                    gesture_type = (
-                        None
-                        if gesture.category_name in (None, "None", "Unknown")
-                        else Gestures(gesture.category_name)
-                    )
+                # Update hand data
+                hand.update(
+                    default_gesture=gesture_type,
+                    all_landmarks=hand_landmarks,
+                    stream_info=stream_info,
+                )
 
-            # Update hand data
-            hand.update(
-                default_gesture=gesture_type,
-                all_landmarks=hand_landmarks,
-                stream_info=stream_info,
-            )
+        for hand in (self.left, self.right):
+            if not hand.is_visible:
+                hand.update(
+                    default_gesture=None,
+                    all_landmarks=None,
+                    stream_info=stream_info,
+                )
 
+        # We do it even if not both hands are visible because we may have smoothed gestures
         gestures: GestureWeights = {}
         if not (self.config.hands.gestures.disable_all or self.config.hands.gestures.two_hands.disable.all):  # type: ignore[attr-defined]
             gestures = self.detect_gestures()
