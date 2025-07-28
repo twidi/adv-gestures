@@ -113,7 +113,9 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
 
             if finger.tip_direction:
                 dx, dy = finger.tip_direction
-                tip_angle = np.degrees(np.arctan2(dy, dx))
+                tip_angle = np.degrees(
+                    np.arctan2(-dy, dx)
+                )  # Negative dy because y increases downward in image coordinates
                 status.append(f"tip_angle:{tip_angle:.0f}°")
 
             status_str = ", ".join(status) if status else "neutral"

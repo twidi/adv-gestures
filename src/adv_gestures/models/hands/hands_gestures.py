@@ -71,7 +71,11 @@ class PrayDetector(TwoHandsGesturesDetector):
     gesture = Gestures.PRAY
     main_directions_range = (70, 110), (70, 110)
     angle_diff_range = None, 30
-    directional_relationships = {HandsDirectionalRelationship.PARALLEL, HandsDirectionalRelationship.CONVERGING}
+    directional_relationships = {
+        HandsDirectionalRelationship.PARALLEL,
+        HandsDirectionalRelationship.CONVERGING_INSIDE_FRAME,
+        HandsDirectionalRelationship.CONVERGING_OUTSIDE_FRAME,
+    }
 
     def hand_in_good_shape(self, hand: Hand) -> bool:
         return hand.is_showing_side and (
@@ -86,7 +90,11 @@ class PrayDetector(TwoHandsGesturesDetector):
 class ClapDetector(TwoHandsGesturesDetector):
     gesture = Gestures.CLAP
     angle_diff_range = None, 30
-    directional_relationships = {HandsDirectionalRelationship.PARALLEL, HandsDirectionalRelationship.CONVERGING}
+    directional_relationships = {
+        HandsDirectionalRelationship.PARALLEL,
+        HandsDirectionalRelationship.CONVERGING_INSIDE_FRAME,
+        HandsDirectionalRelationship.CONVERGING_OUTSIDE_FRAME,
+    }
 
     stateful_mode = StatefulMode.POST_DETECTION
     min_gesture_duration = 0.05  # Min duration for valid clap

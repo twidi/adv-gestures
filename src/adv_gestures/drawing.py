@@ -22,14 +22,17 @@ FINGER_COLORS = [
 
 DIRECTIONS_INDICATORS = {
     HandsDirectionalRelationship.PARALLEL: " ||",
-    HandsDirectionalRelationship.CONVERGING: " ^",
     HandsDirectionalRelationship.INTERSECTING: " x",
+    HandsDirectionalRelationship.CONVERGING_INSIDE_FRAME: " ^",
+    HandsDirectionalRelationship.CONVERGING_OUTSIDE_FRAME: " /\\",
     HandsDirectionalRelationship.LEFT_INTO_RIGHT: " -|",
     HandsDirectionalRelationship.RIGHT_INTO_LEFT: " |-",
     HandsDirectionalRelationship.DIVERGING_NORMAL: " v",
     HandsDirectionalRelationship.DIVERGING_CROSSED: " ><",
-    HandsDirectionalRelationship.DIVERGING_LEFT_BEHIND_RIGHT: " |_",
-    HandsDirectionalRelationship.DIVERGING_RIGHT_BEHIND_LEFT: " _|",
+    HandsDirectionalRelationship.DIVERGING_LEFT_BEHIND_RIGHT_INSIDE_FRAME: " _'",
+    HandsDirectionalRelationship.DIVERGING_LEFT_BEHIND_RIGHT_OUTSIDE_FRAME: " \\'",
+    HandsDirectionalRelationship.DIVERGING_RIGHT_BEHIND_LEFT_INSIDE_FRAME: " '_",
+    HandsDirectionalRelationship.DIVERGING_RIGHT_BEHIND_LEFT_OUTSIDE_FRAME: " '/",
 }
 
 OpenCVImage: TypeAlias = cv2.typing.MatLike  # Type alias for images (numpy arrays)
@@ -180,6 +183,25 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
     # Draw bounding box with dotted lines
     if hand.bounding_box:
         image = draw_dotted_box(hand.bounding_box, image)
+
+    # Draw cross at other hand line intersection
+    if hand.other_hand_line_intersection_absolute:
+        cross_x, cross_y = hand.other_hand_line_intersection_absolute
+        cross_x = int(round(cross_x))
+        cross_y = int(round(cross_y))
+
+        # Choose color based on background brightness (simplified approach)
+        # White cross with black outline for visibility
+        cross_size = 8
+        thickness = 2
+
+        # Draw black outline first
+        cv2.line(image, (cross_x - cross_size, cross_y), (cross_x + cross_size, cross_y), (0, 0, 0), thickness + 2)
+        cv2.line(image, (cross_x, cross_y - cross_size), (cross_x, cross_y + cross_size), (0, 0, 0), thickness + 2)
+
+        # Draw white cross on top
+        cv2.line(image, (cross_x - cross_size, cross_y), (cross_x + cross_size, cross_y), (255, 255, 255), thickness)
+        cv2.line(image, (cross_x, cross_y - cross_size), (cross_x, cross_y + cross_size), (255, 255, 255), thickness)
 
     # Draw pinch box with dotted lines in different color
     if hand.pinch_box:
@@ -484,7 +506,20 @@ def draw_hands_marks_and_info(hands: Hands, stream_info: "StreamInfo", frame: Op
         direction_indicator = (
             DIRECTIONS_INDICATORS.get(hands.directional_relationship, "") if hands.directional_relationship else ""
         )
-        center_lines.append((f"TWO HANDS{angle_diff_str}{direction_indicator}", "header"))
+        # Add ray alignment positions if available
+        alignment_info = ""
+        left_align = hands.left.other_hand_line_intersection if hands.left else None
+        right_align = hands.right.other_hand_line_intersection if hands.right else None
+
+        if left_align is not None or right_align is not None:
+            parts = []
+            if left_align is not None:
+                parts.append(f"L:{left_align:.2f}")
+            if right_align is not None:
+                parts.append(f"R:{right_align:.2f}")
+            alignment_info = f" [{', '.join(parts)}]"
+
+        center_lines.append((f"TWO HANDS{angle_diff_str}{direction_indicator}{alignment_info}", "header"))
 
         # Show two-hands gestures if any
         if hands.gestures:

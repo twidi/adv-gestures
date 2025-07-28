@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from functools import cached_property
-from math import sqrt
+from math import inf, sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, cast
 
@@ -39,6 +39,7 @@ from .utils import Box, Handedness
 
 if TYPE_CHECKING:
     from ...recognizer import StreamInfo
+    from .hands import Hands
 
 
 class Hand(SmoothedBase):
@@ -51,6 +52,11 @@ class Hand(SmoothedBase):
         "bounding_box",
         "pinch_box",
         "main_direction_angle",
+        "bounding_box_direction_line_points",
+        "frame_direction_line_points",
+        "other_hand_line_intersection",
+        "other_hand_line_intersection_normalized",
+        "other_hand_line_intersection_absolute",
         # All adjacent finger pairs
         "thumb_index_spread_angle",
         "thumb_index_touching",
@@ -68,8 +74,9 @@ class Hand(SmoothedBase):
         "custom_gestures_durations",
     )
 
-    def __init__(self, handedness: Handedness, config: Config) -> None:
+    def __init__(self, handedness: Handedness, hands: Hands, config: Config) -> None:
         super().__init__()
+        self.hands = hands
         self.config = config
         self.handedness = handedness
 
@@ -106,6 +113,11 @@ class Hand(SmoothedBase):
         self._direction_history: deque[tuple[float, float, float, float]] = deque()
 
         self.gestures_detector = HandGesturesDetector(self)
+
+    @cached_property  # will never change after initialization
+    def other_hand(self) -> Hand:
+        """Get the other hand (left or right) based on handedness."""
+        return self.hands.left if self.handedness == Handedness.RIGHT else self.hands.right
 
     def reset(self) -> None:
         """Reset the hand state and clear all cached properties."""
@@ -517,6 +529,180 @@ class Hand(SmoothedBase):
         return Box(min(x_coords), min(y_coords), max(x_coords), max(y_coords))
 
     bounding_box = SmoothedProperty(_calc_bounding_box, BoxSmoother)
+
+    @cached_property
+    def bounding_box_direction_line_points(self) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        """Get the entry and exit points of the hand's direction line through its bounding box."""
+        if not self.wrist_landmark or not self.main_direction or not self.bounding_box:
+            return None
+
+        return self.bounding_box.line_intersections(
+            (self.wrist_landmark.x, self.wrist_landmark.y), self.main_direction
+        )
+
+    @cached_property
+    def frame_direction_line_points(self) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        """Get the entry and exit points of the hand's direction line through the frame boundaries."""
+        if not self.wrist_landmark or not self.main_direction or not self.stream_info:
+            return None
+
+        # Create a Box representing the frame boundaries
+        frame_box = Box(0, 0, self.stream_info.width, self.stream_info.height)
+
+        return frame_box.line_intersections((self.wrist_landmark.x, self.wrist_landmark.y), self.main_direction)
+
+    def _calc_other_hand_line_intersection(self) -> float | None:
+        """Calculate where this hand's ray aligns with the other hand's direction line.
+
+        Returns:
+        - < 0: pointing behind the other hand
+        - [0, 1]: pointing through the other hand's bounding box (0=entry, 1=exit)
+        - > 1: pointing beyond the other hand
+        - -inf: intersection would be negative but is outside frame
+        - +inf: intersection would be positive but is outside frame
+        - None: if rays don't intersect (parallel lines)
+        """
+        # Get other hand
+        other = self.other_hand
+        if not other or not other.is_visible:
+            return None
+
+        # Get required data for both hands
+        my_wrist = self.wrist_landmark
+        my_direction = self.main_direction
+
+        if not my_wrist or not my_direction:
+            return None
+
+        # Get other hand's line intersection points with its bounding box
+        other_line_points = other.bounding_box_direction_line_points
+        if not other_line_points:
+            return None
+
+        entry_point, exit_point = other_line_points
+
+        # Now we need to find where my ray intersects the other hand's line
+        # This is a ray-line intersection problem
+
+        # Other hand's line: P = entry_point + s * (exit_point - entry_point)
+        # My ray: Q = my_wrist + t * my_direction (t > 0)
+
+        # Vector along other hand's line
+        line_dx = exit_point[0] - entry_point[0]
+        line_dy = exit_point[1] - entry_point[1]
+
+        # Solve for intersection
+        px, py = my_wrist.x, my_wrist.y
+        pdx, pdy = my_direction
+
+        ex, ey = entry_point
+
+        # Cross product to check if parallel
+        cross = pdx * line_dy - pdy * line_dx
+
+        if abs(cross) < 1e-10:
+            # Lines are parallel, no intersection
+            return None
+
+        # Calculate parameters
+        t = ((ex - px) * line_dy - (ey - py) * line_dx) / cross
+        s = ((ex - px) * pdy - (ey - py) * pdx) / cross
+
+        # Check if intersection is in positive direction (t > 0)
+        if t <= 0:
+            # Ray points backward
+            return None
+
+        # s is already the normalized position on the other hand's line:
+        # s = 0 means at entry point
+        # s = 1 means at exit point
+        # s < 0 means before entry
+        # s > 1 means after exit
+
+        # Check if intersection point is within frame bounds
+        if self.stream_info:
+            intersection_x = px + t * pdx
+            intersection_y = py + t * pdy
+
+            if not (0 <= intersection_x <= self.stream_info.width and 0 <= intersection_y <= self.stream_info.height):
+                # Intersection is outside frame
+                # Return +inf or -inf depending on whether s would be positive or negative
+                return inf if s >= 0 else -inf
+
+        return s
+
+    other_hand_line_intersection = smoothed_optional_float(_calc_other_hand_line_intersection)
+
+    @cached_property
+    def other_hand_line_intersection_normalized(self) -> float | None:
+        """Normalized version of other_hand_line_intersection.
+
+        Returns:
+        - None, +inf, -inf: kept as is
+        - Other values: normalized to [0, 1] based on frame_direction_line_points
+        """
+        # Get the raw intersection value (p_B in the formula)
+        s = self.other_hand_line_intersection
+
+        # Keep special values as is
+        if s is None or s == inf or s == -inf:
+            return s
+
+        # Get the other hand's frame and bounding box line points
+        if not (other := self.other_hand):
+            return None
+        if not (other_frame_points := other.frame_direction_line_points):
+            return None
+        if not (other_bbox_points := other.bounding_box_direction_line_points):
+            return None
+
+        # Unpack points - already ordered (entry, exit)
+        frame_entry, frame_exit = other_frame_points
+        bbox_entry, bbox_exit = other_bbox_points
+
+        # Calculate distances for the formula
+        # F = distance between frame_entry and frame_exit
+        F = sqrt((frame_exit[0] - frame_entry[0]) ** 2 + (frame_exit[1] - frame_entry[1]) ** 2)
+
+        # B = distance between bbox_entry and bbox_exit
+        B = sqrt((bbox_exit[0] - bbox_entry[0]) ** 2 + (bbox_exit[1] - bbox_entry[1]) ** 2)
+
+        # d_B = distance between frame_entry and bbox_entry
+        d_B = sqrt((bbox_entry[0] - frame_entry[0]) ** 2 + (bbox_entry[1] - frame_entry[1]) ** 2)
+
+        # Apply the formula: p_F = (d_B + p_B × B) / F
+        # where p_B is s (the intersection position on bbox line)
+        p_F = (d_B + s * B) / F
+
+        return p_F
+
+    @cached_property
+    def other_hand_line_intersection_absolute(self) -> tuple[float, float] | None:
+        """Absolute coordinates of the intersection point.
+
+        Returns None if no valid intersection, otherwise (x, y) coordinates.
+        """
+        # Get the normalized intersection value
+        p_f = self.other_hand_line_intersection_normalized
+
+        # Can't calculate absolute position for special values
+        if p_f is None or p_f == inf or p_f == -inf:
+            return None
+
+        # Get the other hand's frame line points
+        if not (other := self.other_hand):
+            return None
+        if not (other_frame_points := other.frame_direction_line_points):
+            return None
+
+        # Unpack points
+        frame_entry, frame_exit = other_frame_points
+
+        # Calculate absolute coordinates using linear interpolation
+        x = frame_entry[0] + p_f * (frame_exit[0] - frame_entry[0])
+        y = frame_entry[1] + p_f * (frame_exit[1] - frame_entry[1])
+
+        return (x, y)
 
     def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.
