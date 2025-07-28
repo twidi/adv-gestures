@@ -16,6 +16,7 @@ from ...smoothing import (
     CoordSmoother,
     EnumSmoother,
     GestureWeights,
+    ManyCoordsSmoother,
     MultiGestureSmoother,
     SmoothedBase,
     SmoothedProperty,
@@ -50,6 +51,7 @@ class Hand(SmoothedBase):
         "all_adjacent_fingers_touching",
         "all_adjacent_fingers_except_thumb_touching",
         "bounding_box",
+        "oriented_bounding_box",
         "pinch_box",
         "main_direction_angle",
         "bounding_box_direction_line_points",
@@ -530,6 +532,63 @@ class Hand(SmoothedBase):
 
     bounding_box = SmoothedProperty(_calc_bounding_box, BoxSmoother)
 
+    def _calc_oriented_bounding_box_corners(self) -> tuple[tuple[float, float], ...] | None:
+        """Calculate the four corners of the oriented bounding box.
+        The box has one side perpendicular to main_direction and one side parallel to it.
+        Returns tuple of 4 points (top-left, top-right, bottom-right, bottom-left) in pixel coordinates."""
+        if not self.all_landmarks or not self.main_direction:
+            return None
+
+        # Get all landmark positions
+        points = [(lm.x, lm.y) for lm in self.all_landmarks]
+
+        # Get the main direction vector (already normalized)
+        dir_x, dir_y = self.main_direction
+
+        # Calculate perpendicular vector (rotate 90 degrees counter-clockwise)
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # Project all points onto the two axes (parallel and perpendicular to main direction)
+        parallel_coords = []
+        perp_coords = []
+
+        for x, y in points:
+            # Project onto parallel axis (main direction)
+            parallel_proj = x * dir_x + y * dir_y
+            parallel_coords.append(parallel_proj)
+
+            # Project onto perpendicular axis
+            perp_proj = x * perp_x + y * perp_y
+            perp_coords.append(perp_proj)
+
+        # Find min/max projections
+        min_parallel = min(parallel_coords)
+        max_parallel = max(parallel_coords)
+        min_perp = min(perp_coords)
+        max_perp = max(perp_coords)
+
+        # Build corners in the oriented coordinate system, then convert back to pixel coordinates
+        # The four corners in terms of the parallel/perpendicular axes
+        corners_local = [
+            (min_parallel, min_perp),  # bottom-left in oriented space
+            (max_parallel, min_perp),  # bottom-right in oriented space
+            (max_parallel, max_perp),  # top-right in oriented space
+            (min_parallel, max_perp),  # top-left in oriented space
+        ]
+
+        # Convert back to pixel coordinates
+        corners = []
+        for parallel, perp in corners_local:
+            # Reconstruct the point from its projections
+            px = parallel * dir_x + perp * perp_x
+            py = parallel * dir_y + perp * perp_y
+            corners.append((px, py))
+
+        return tuple(corners)
+
+    oriented_bounding_box = SmoothedProperty(_calc_oriented_bounding_box_corners, ManyCoordsSmoother, nb_coords=4)
+
     @cached_property
     def bounding_box_direction_line_points(self) -> tuple[tuple[float, float], tuple[float, float]] | None:
         """Get the entry and exit points of the hand's direction line through its bounding box."""
@@ -564,7 +623,7 @@ class Hand(SmoothedBase):
         """
         # Get other hand
         other = self.other_hand
-        if not other or not other.is_visible:
+        if not other:
             return None
 
         # Get required data for both hands

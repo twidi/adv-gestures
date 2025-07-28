@@ -91,6 +91,64 @@ def draw_dotted_box(
     return image
 
 
+def draw_dotted_oriented_box(
+    corners: tuple[tuple[float, float], ...],
+    image: OpenCVImage,
+    color: tuple[int, int, int] = (180, 180, 180),
+    thickness: int = 1,
+    dot_length: int = 5,
+    gap_length: int = 5,
+) -> OpenCVImage:
+    """Draw an oriented box as dotted lines on the image.
+
+    Args:
+        corners: Tuple of 4 corner points (x, y) in order
+        image: The image to draw on
+        color: BGR color tuple
+        thickness: Line thickness
+        dot_length: Length of each dot
+        gap_length: Length of gap between dots
+
+    Returns:
+        The image with the oriented box drawn
+    """
+    # Convert to integer pixel coordinates
+    corners_int = [(int(round(x)), int(round(y))) for x, y in corners]
+
+    # Draw each edge with dotted pattern
+    for i in range(4):
+        start = corners_int[i]
+        end = corners_int[(i + 1) % 4]
+
+        # Calculate edge vector and length
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = sqrt(dx**2 + dy**2)
+
+        if length > 0:
+            # Normalize direction
+            dx_norm = dx / length
+            dy_norm = dy / length
+
+            # Draw dotted line
+            current_pos = 0
+            while current_pos < length:
+                dot_start = current_pos
+                dot_end = min(current_pos + dot_length, length)
+
+                # Calculate dot endpoints
+                x1 = int(start[0] + dx_norm * dot_start)
+                y1 = int(start[1] + dy_norm * dot_start)
+                x2 = int(start[0] + dx_norm * dot_end)
+                y2 = int(start[1] + dy_norm * dot_end)
+
+                cv2.line(image, (x1, y1), (x2, y2), color, thickness)
+
+                current_pos += dot_length + gap_length
+
+    return image
+
+
 def draw_hands_marks(hands: Hands, image: OpenCVImage) -> OpenCVImage:
     """Draw both hands on the image."""
     image = draw_hand_marks(hands.left, image)
@@ -183,6 +241,15 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
     # Draw bounding box with dotted lines
     if hand.bounding_box:
         image = draw_dotted_box(hand.bounding_box, image)
+
+    # Draw oriented bounding box in yellow with dotted lines
+    if hand.oriented_bounding_box:
+        image = draw_dotted_oriented_box(
+            hand.oriented_bounding_box,
+            image,
+            color=(0, 255, 255),  # Yellow
+            thickness=1,
+        )
 
     # Draw cross at other hand line intersection
     if hand.other_hand_line_intersection_absolute:
@@ -456,7 +523,7 @@ def draw_hands_marks_and_info(hands: Hands, stream_info: "StreamInfo", frame: Op
         # if not hand:
         #     continue
         handedness_str = hand.handedness.name
-        if not hand.is_visible:
+        if not hand:
             # If hand is not visible, show "No hand detected" message
             lines.append((f"{handedness_str} hand not detected", "header"))
             continue

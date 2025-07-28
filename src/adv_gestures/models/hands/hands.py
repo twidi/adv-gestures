@@ -32,6 +32,8 @@ class Hands(SmoothedBase):
         "hands_are_close",
         "hands_direction_angle_diff",
         "directional_relationship",
+        "bounding_boxes_overlap",
+        "oriented_bounding_boxes_overlap",
     )
 
     def __init__(self, config: Config) -> None:
@@ -110,7 +112,7 @@ class Hands(SmoothedBase):
                 )
 
         for hand in (self.left, self.right):
-            if not hand.is_visible:
+            if not hand:
                 hand.update(
                     default_gesture=None,
                     all_landmarks=None,
@@ -319,3 +321,37 @@ class Hands(SmoothedBase):
     directional_relationship = SmoothedProperty(
         _calc_directional_relationship, EnumSmoother[HandsDirectionalRelationship | None], default_value=None
     )
+
+    @cached_property
+    def bounding_boxes_overlap(self) -> bool | None:
+        """Check if the bounding boxes of both hands overlap.
+        Returns True if overlapping, False if both present but not overlapping, None if either hand not visible.
+        """
+        if not self.left or not self.right:
+            return None
+
+        left_box = self.left.bounding_box
+        right_box = self.right.bounding_box
+
+        if not left_box or not right_box:
+            return None
+
+        return left_box.overlaps(right_box)
+
+    @cached_property
+    def oriented_bounding_boxes_overlap(self) -> bool | None:
+        """Check if the oriented bounding boxes of both hands overlap.
+        Returns True if overlapping, False if both present but not overlapping, None if either hand not visible.
+        """
+        if not self.left or not self.right:
+            return None
+
+        left_corners = self.left.oriented_bounding_box
+        right_corners = self.right.oriented_bounding_box
+
+        if not left_corners or not right_corners:
+            return None
+
+        from .utils import oriented_boxes_overlap
+
+        return oriented_boxes_overlap(left_corners, right_corners)

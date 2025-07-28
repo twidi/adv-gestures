@@ -143,6 +143,39 @@ class CoordSmoother:
         return self._last_raw
 
 
+class ManyCoordsSmoother:
+    """Smooths a tuple of many coordinates (n tuples of two floats each)."""
+
+    def __init__(
+        self,
+        nb_coords: int,
+        window: float = SMOOTHING_WINDOW,
+        ema_alpha: float = SMOOTHING_EMA_WEIGHT,
+    ):
+        self.nb_coords = nb_coords
+        self.smoothers = [CoordSmoother(window, ema_alpha) for _ in range(self.nb_coords)]
+        self._last_raw: tuple[tuple[float, float], ...] | None = None
+
+    def update(self, coords: tuple[tuple[float, float], ...] | None) -> tuple[tuple[float, float], ...] | None:
+        """Update with new coordinates and return smoothed result."""
+        if coords is not None and len(coords) != self.nb_coords:
+            raise ValueError(f"Expected 4 coordinates, got {len(coords)}")
+
+        self._last_raw = coords
+
+        results = tuple(
+            s.update(v)
+            for s, v in zip(self.smoothers, (None,) * self.nb_coords if coords is None else coords, strict=True)
+        )
+
+        return None if None in results else cast(tuple[tuple[float, float], ...], results)
+
+    @property
+    def raw(self) -> tuple[tuple[float, float], ...] | None:
+        """Get the last raw (unsmoothed) coordinates."""
+        return self._last_raw
+
+
 class BoxSmoother:
     """Smooths a bounding box."""
 

@@ -31,6 +31,7 @@ class Gestures(str, Enum):
     CLAP = "Clap"  # Hands joined briefly (less than 1 second) then separated
     CROSSED_FLAT = "Crossed_Flat"  # Both hands crossed with fingers straight
     CROSSED_FISTS = "Crossed_Fists"  # Both hands crossed with fingers in fist position
+    TIME_OUT = "Time_Out"  # Two hands forming a T shape, perpendicular
 
 
 DEFAULT_GESTURES: set[Gestures] = {
@@ -42,7 +43,13 @@ DEFAULT_GESTURES: set[Gestures] = {
     Gestures.VICTORY,
     Gestures.LOVE,
 }
-TWO_HANDS_GESTURES: set[Gestures] = {Gestures.PRAY, Gestures.CLAP, Gestures.CROSSED_FLAT, Gestures.CROSSED_FISTS}
+TWO_HANDS_GESTURES: set[Gestures] = {
+    Gestures.PRAY,
+    Gestures.CLAP,
+    Gestures.CROSSED_FLAT,
+    Gestures.CROSSED_FISTS,
+    Gestures.TIME_OUT,
+}
 
 OVERRIDABLE_DEFAULT_GESTURES: set[Gestures] = {Gestures.VICTORY}
 

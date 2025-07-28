@@ -145,4 +145,44 @@ class CrossedFistsDetector(TwoHandsGesturesDetector):
         return True
 
 
+class TimeOutDetector(TwoHandsGesturesDetector):
+    gesture = Gestures.TIME_OUT
+    angle_diff_range = 70, 110
+    directional_relationships = {
+        HandsDirectionalRelationship.LEFT_INTO_RIGHT,
+        HandsDirectionalRelationship.RIGHT_INTO_LEFT,
+    }
+
+    def hand_in_good_shape(self, hand: Hand) -> bool:
+        return (
+            hand.index.is_nearly_straight_or_straight
+            and hand.middle.is_nearly_straight_or_straight
+            and hand.ring.is_nearly_straight_or_straight
+            and hand.pinky.is_nearly_straight_or_straight
+        )
+
+    def matches(self, hands: Hands, left: Hand, right: Hand, detected: GestureWeights) -> bool:
+        # First check if the oriented bounding boxes overlap
+        if not hands.bounding_boxes_overlap:
+            return False
+
+        # Determine which hand is pointing at the other based on directional relationship
+        pointing_hand: Hand | None = None
+        if hands.directional_relationship == HandsDirectionalRelationship.LEFT_INTO_RIGHT:
+            pointing_hand = left
+        elif hands.directional_relationship == HandsDirectionalRelationship.RIGHT_INTO_LEFT:
+            pointing_hand = right
+
+        if pointing_hand is None:
+            return False
+
+        # Check if the pointing hand's ray hits roughly the middle of the other hand
+        intersection = pointing_hand.other_hand_line_intersection
+        if intersection is None:
+            return False
+
+        # Check if intersection is in the middle part of the other hand
+        return 0.4 <= intersection <= 0.8
+
+
 TwoHandsGesturesDetector._ensure_all_detectors_registered()
