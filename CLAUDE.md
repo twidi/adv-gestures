@@ -131,3 +131,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - When working with README.md and CLAUDE.md files, the content should reflect the CURRENT state of the project, not a narrative of changes. 
   - Avoid phrases like "We added this" or "This was refactored"
   - Focus on describing the project's current structure, features, and capabilities as they exist RIGHT NOW
+
+## Technical Considerations
+- On z-axis coordinate handling:
+  - We cannot reliably use the z-axis because MediaPipe landmark z-values are not consistently reliable
