@@ -6,7 +6,7 @@ import cv2  # type: ignore[import-untyped]
 from .gestures import Gestures
 from .models.fingers import AnyFinger, FingerIndex, Thumb
 from .models.hands import Box, Hand, Hands, HandsDirectionalRelationship, Palm
-from .models.hands.hand_gestures import AirTapDetector
+from .models.hands.hand_gestures import AirTapDetector, SwipeHandDetector
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -546,6 +546,12 @@ def draw_hands_marks_and_info(hands: Hands, stream_info: "StreamInfo", frame: Op
                 gesture_text = f"{gesture.name}: {weight:.2f}"
                 if gesture in durations:
                     gesture_text += f" ({durations[gesture]:.1f}s)"
+
+                # Add direction for swipe gestures
+                if gesture == Gestures.SWIPE_HAND:
+                    swipe_detector = cast(SwipeHandDetector, hand.gestures_detector.detectors[Gestures.SWIPE_HAND])
+                    if swipe_detector.direction is not None:
+                        gesture_text += f" ({swipe_detector.direction.name})"
 
                 # Add source indicator (custom/default)
                 source_indicators = []

@@ -25,8 +25,7 @@ class Gestures(str, Enum):
     AIR_TAP = "Air_Tap"  # Index finger held straight and still for 2 seconds
     WAVE = "Wave"  # Open palm waving left-right motion
     SNAP = "Snap"  # Finger snap detected by before/after states
-    SWIPE_HAND_TO_LEFT = "Swipe_Hand_To_Left"  # Hand swipe from right to left
-    SWIPE_HAND_TO_RIGHT = "Swipe_Hand_To_Right"  # Hand swipe from left to right
+    SWIPE_HAND = "Swipe_Hand"  # Hand swipe in any direction (direction stored in detection data)
 
     # Hands gestures (gestures implying both hands)
     PRAY = "Pray"  # Both hands in a prayer position, palms together, fingers pointing up

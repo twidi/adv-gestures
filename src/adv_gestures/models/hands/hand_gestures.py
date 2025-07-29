@@ -455,7 +455,7 @@ class AirTapDetector(HandGesturesDetector):
 
     @property
     def tip_position(self) -> tuple[int, int] | None:
-        """Get the current tap position for visualization."""
+        """Get the current tap position."""
         # First, look for POST_DETECTING states (oldest first)
 
         if post_detecting_states := self.post_detecting_detections:
@@ -577,19 +577,19 @@ class SnapDetector(HandGesturesDetector):
         return False
 
 
-class _SwipeHandDetector(HandGesturesDetector):
-    """Base class for swipe hand detectors."""
+class SwipeHandDetector(HandGesturesDetector):
+    """Unified swipe hand detector that detects swipes in any direction."""
 
+    gesture = Gestures.SWIPE_HAND
     stateful_mode = StatefulMode.POST_DETECTION
     post_detection_duration = 0.5  # Report swipe for 0.5s after detection
-    direction: Direction | None = None  # Placeholder for direction, to be set in subclasses
+
+    def __init__(self, hand: Hand):
+        super().__init__(hand)
+        self._detected_direction: Direction | None = None
 
     def _calc_is_swiping(self) -> bool:
-        """Check if hand is currently performing a swipe motion in the expected direction."""
-
-        if self.direction is None:
-            raise ValueError("Swipe direction must be set in subclasses.")
-
+        """Check if hand is currently performing a swipe motion and capture direction."""
         # For a swipe, we need exactly 1 direction change
         # Use a shorter duration window since swipes are quick
         has_changes, changes = self.hand.detect_direction_changes(
@@ -603,14 +603,20 @@ class _SwipeHandDetector(HandGesturesDetector):
         )
 
         if not has_changes or not changes:
+            self._detected_direction = None
             return False
 
-        # Check if the most recent change matches our expected direction
+        # Get the most recent change
         # changes contains (Direction, time_ago) pairs
         most_recent_change = changes[-1]  # Get the most recent change
         direction, time_ago = most_recent_change
 
-        return direction == self.direction and time_ago < 0.5
+        if time_ago < 0.5:
+            self._detected_direction = direction
+            return True
+
+        self._detected_direction = None
+        return False
 
     is_swiping = smoothed_bool(_calc_is_swiping)
 
@@ -640,15 +646,22 @@ class _SwipeHandDetector(HandGesturesDetector):
         # Check fingers are straight AND swipe motion is detected
         return self.hand_in_good_shape() and self.is_swiping
 
+    def _stateful_start_tracking(self, now: float) -> DetectionState:
+        """Override to store the detected swipe direction in detection data."""
+        detection = super()._stateful_start_tracking(now)
+        detection.data = {"direction": self._detected_direction}
+        return detection
 
-class SwipeHandToLeftDetector(_SwipeHandDetector):
-    gesture = Gestures.SWIPE_HAND_TO_LEFT
-    direction = Direction.LEFT
+    @property
+    def direction(self) -> Direction | None:
+        """Get the current direction for visualization."""
 
+        if post_detecting_states := self.post_detecting_detections:
+            # Get the oldest POST_DETECTING state
+            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
+            return cast(Direction, oldest.data["direction"])  # type: ignore[index]  # data defined in _stateful_start_tracking
 
-class SwipeHandToRightDetector(_SwipeHandDetector):
-    gesture = Gestures.SWIPE_HAND_TO_RIGHT
-    direction = Direction.RIGHT
+        return None
 
 
 HandGesturesDetector._ensure_all_detectors_registered()
