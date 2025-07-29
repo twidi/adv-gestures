@@ -4,12 +4,12 @@ from collections import deque
 from functools import cached_property
 from math import acos, atan2, degrees, inf, radians, sqrt
 from time import time
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 
 from ...config import Config
-from ...gestures import Gestures
+from ...gestures import DEFAULT_GESTURES, Gestures
 from ...smoothing import (
     GESTURE_SMOOTHING_WINDOW,
     BoxSmoother,
@@ -36,7 +36,7 @@ from ..fingers import (
 from ..landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 from .hand_gestures import HandGesturesDetector
 from .palm import Palm
-from .utils import Box, Direction, Handedness
+from .utils import Box, Handedness, SwipeDirection
 
 if TYPE_CHECKING:
     from ...recognizer import StreamInfo
@@ -73,6 +73,7 @@ class Hand(SmoothedBase):
         "custom_gestures",
         "gestures",
         "gestures_durations",
+        "gestures_data",
     )
 
     def __init__(self, handedness: Handedness, hands: Hands, config: Config) -> None:
@@ -341,7 +342,7 @@ class Hand(SmoothedBase):
         max_time_since_last_change: float = 0.5,
         require_recent_movement: bool = True,
         recent_movement_window: float = 0.3,
-    ) -> tuple[bool, list[tuple[Direction, float]]]:
+    ) -> tuple[bool, list[tuple[SwipeDirection, float]]]:
         """Detect oscillating directional changes in hand movement.
 
         Args:
@@ -376,7 +377,7 @@ class Hand(SmoothedBase):
 
         # Detect direction changes based on X component sign changes
         # Track direction changes with their direction
-        direction_changes: list[tuple[float, Direction]] = []
+        direction_changes: list[tuple[float, SwipeDirection]] = []
         last_significant_x = None
 
         for i, (t, x, _y) in enumerate(directions_in_window):
@@ -392,7 +393,7 @@ class Hand(SmoothedBase):
                     # Direction change detected
                     if i > 0:
                         # Determine which direction we changed TO
-                        new_direction = Direction.RIGHT if current_sign > 0 else Direction.LEFT
+                        new_direction = SwipeDirection.RIGHT if current_sign > 0 else SwipeDirection.LEFT
                         direction_changes.append((t, new_direction))
 
             last_significant_x = x
@@ -1014,6 +1015,16 @@ class Hand(SmoothedBase):
             gesture: now - start_time
             for gesture, start_time in self._gestures_start_times.items()
             if gesture in self.gestures
+        }
+
+    @cached_property
+    def gestures_data(self) -> dict[Gestures, dict[str, Any]]:
+        """Get the data from gesture detectors for all currently active gestures."""
+        return {
+            gesture: data
+            for gesture in self.gestures
+            if gesture not in DEFAULT_GESTURES
+            and (data := self.gestures_detector.detectors[gesture].get_data()) is not None
         }
 
     def is_gesture_disabled(self, gesture: Gestures) -> bool:

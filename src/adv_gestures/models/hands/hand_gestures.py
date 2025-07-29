@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from math import sqrt
 from time import time
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from ...gestures import CUSTOM_GESTURES, Gestures
 from ...smoothing import GestureWeights, SmoothedBase, smoothed_bool
@@ -13,7 +13,7 @@ from .base_gestures import (
     Range,
     StatefulMode,
 )
-from .utils import Direction, Handedness
+from .utils import Handedness, SwipeDirection, SwipeMode
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -453,22 +453,11 @@ class AirTapDetector(HandGesturesDetector):
         self._last_removed_tip_position = None
         return True
 
-    @property
-    def tip_position(self) -> tuple[int, int] | None:
-        """Get the tap position when in POST_DETECTING state."""
-        # Only return position for POST_DETECTING states
-        if post_detecting_states := self.post_detecting_detections:
-            # Get the oldest POST_DETECTING state
-            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
-            return cast(tuple[int, int], oldest.data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
-
-        return None
-
 
 class PreAirTapDetector(HandGesturesDetector):
     gesture = Gestures.PRE_AIR_TAP
 
-    air_tap_detector: AirTapDetector | None = None
+    _air_tap_detector: AirTapDetector | None = None
 
     def matches(
         self,
@@ -480,21 +469,28 @@ class PreAirTapDetector(HandGesturesDetector):
         pinky: PinkyFinger,
         detected: GestureWeights,
     ) -> bool:
-        if self.air_tap_detector is None:
-            self.air_tap_detector = cast(AirTapDetector, hand.gestures_detector.detectors[Gestures.AIR_TAP])
         if self.air_tap_detector.tracking_detections:
             return True
         return False
 
     @property
-    def tip_position(self) -> tuple[int, int] | None:
-        """Get the current tracking air tap position."""
-        if self.air_tap_detector is None:
-            return None
-        if not (tracking_states := self.air_tap_detector.tracking_detections):
-            return None
-        # Get the first tracking state
-        return cast(tuple[int, int], tracking_states[0].data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
+    def air_tap_detector(self) -> AirTapDetector:
+        if self._air_tap_detector is None:
+            self._air_tap_detector = cast(AirTapDetector, self.hand.gestures_detector.detectors[Gestures.AIR_TAP])
+        return self._air_tap_detector
+
+    def get_data(self) -> dict[str, Any] | None:
+        data = super().get_data()
+        if not self.air_tap_detector.tracking_detections:
+            return data
+        if (air_tap_data := self.air_tap_detector.tracking_detections[0].data) is None:
+            return data
+        if "tap_position" not in air_tap_data:
+            return data
+        if data is None:
+            data = {}
+        data["tap_position"] = air_tap_data["tap_position"]
+        return data
 
 
 class WaveDetector(HandGesturesDetector):
@@ -599,7 +595,7 @@ class SwipeDetector(HandGesturesDetector):
 
     def __init__(self, hand: Hand):
         super().__init__(hand)
-        self._detected_direction: Direction | None = None
+        self._detected_direction: SwipeDirection | None = None
 
     def _calc_is_swiping(self) -> bool:
         """Check if hand is currently performing a swipe motion and capture direction."""
@@ -675,22 +671,15 @@ class SwipeDetector(HandGesturesDetector):
     def _stateful_start_tracking(self, now: float) -> DetectionState:
         """Override to store the detected swipe direction and type in detection data."""
         detection = super()._stateful_start_tracking(now)
-        # Determine if it's a hand swipe or index swipe
-        by_hand = self.hand_in_good_shape()
-        by_index = not by_hand and self.index_only_shape()
-        detection.data = {"direction": self._detected_direction, "by_hand": by_hand, "by_index": by_index}
+        # Determine swipe mode
+        if self.hand_in_good_shape():
+            mode = SwipeMode.HAND
+        elif self.index_only_shape():
+            mode = SwipeMode.FINGER
+        else:
+            raise ValueError("Swipe detection logic should ensure one of the mode HAND/FINGER is matched.")
+        detection.data = {"direction": self._detected_direction, "mode": mode}
         return detection
-
-    @property
-    def direction(self) -> Direction | None:
-        """Get the current direction for visualization."""
-
-        if post_detecting_states := self.post_detecting_detections:
-            # Get the oldest POST_DETECTING state
-            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
-            return cast(Direction, oldest.data["direction"])  # type: ignore[index]  # data defined in _stateful_start_tracking
-
-        return None
 
 
 HandGesturesDetector._ensure_all_detectors_registered()

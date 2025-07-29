@@ -309,3 +309,11 @@ class BaseGestureDetector(Generic[WithGesturesType]):
 
     def _matches(self, detected: GestureWeights) -> bool:
         raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def get_data(self) -> dict[str, Any] | None:
+        """Get data from the oldest post-detecting detection."""
+        if post_detecting_states := self.post_detecting_detections:
+            # Get the oldest POST_DETECTING state
+            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
+            return oldest.data
+        return None

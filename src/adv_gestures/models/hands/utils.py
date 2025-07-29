@@ -242,8 +242,15 @@ def oriented_boxes_overlap(
     return True
 
 
-class Direction(str, Enum):
-    """Direction of movement."""
+class SwipeDirection(str, Enum):
+    """Direction of swipe movement."""
 
     LEFT = "left"
     RIGHT = "right"
+
+
+class SwipeMode(str, Enum):
+    """Mode of swipe detection."""
+
+    HAND = "hand"  # Swipe detected by hand movement
+    FINGER = "finger"  # Swipe detected by index finger movement

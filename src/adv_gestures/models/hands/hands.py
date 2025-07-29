@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import cached_property
 from math import inf, sqrt
 from time import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ...config import Config
 from ...gestures import Gestures
@@ -28,6 +28,7 @@ class Hands(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
         "gestures",
         "gestures_durations",
+        "gestures_data",
         "hands_distance",
         "hands_are_close",
         "hands_direction_angle_diff",
@@ -153,6 +154,15 @@ class Hands(SmoothedBase):
             gesture: now - start_time
             for gesture, start_time in self._gestures_start_times.items()
             if gesture in self.gestures
+        }
+
+    @cached_property
+    def gestures_data(self) -> dict[Gestures, dict[str, Any]]:
+        """Get the data from gesture detectors for all currently active gestures."""
+        return {
+            gesture: data
+            for gesture in self.gestures
+            if (data := self.gestures_detector.detectors[gesture].get_data()) is not None
         }
 
     def is_gesture_disabled(self, gesture: Gestures) -> bool:
