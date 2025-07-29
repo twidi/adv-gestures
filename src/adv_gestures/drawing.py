@@ -6,7 +6,7 @@ import cv2  # type: ignore[import-untyped]
 from .gestures import Gestures
 from .models.fingers import AnyFinger, FingerIndex, Thumb
 from .models.hands import Box, Hand, Hands, HandsDirectionalRelationship, Palm
-from .models.hands.hand_gestures import AirTapDetector, SwipeHandDetector
+from .models.hands.hand_gestures import AirTapDetector, SwipeDetector
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -547,11 +547,23 @@ def draw_hands_marks_and_info(hands: Hands, stream_info: "StreamInfo", frame: Op
                 if gesture in durations:
                     gesture_text += f" ({durations[gesture]:.1f}s)"
 
-                # Add direction for swipe gestures
-                if gesture == Gestures.SWIPE_HAND:
-                    swipe_detector = cast(SwipeHandDetector, hand.gestures_detector.detectors[Gestures.SWIPE_HAND])
+                # Add direction and type for swipe gestures
+                if gesture == Gestures.SWIPE:
+                    swipe_detector = cast(SwipeDetector, hand.gestures_detector.detectors[Gestures.SWIPE])
                     if swipe_detector.direction is not None:
-                        gesture_text += f" ({swipe_detector.direction.name})"
+                        # Get swipe type from detection data
+                        swipe_type = ""
+                        if swipe_detector.post_detecting_detections:
+                            detection = min(swipe_detector.post_detecting_detections, key=lambda d: d.tracking_start)
+                            data = detection.data
+                            if data and data.get("by_hand"):
+                                swipe_type = "HAND"
+                            elif data and data.get("by_index"):
+                                swipe_type = "INDEX"
+                        if swipe_type:
+                            gesture_text += f" ({swipe_detector.direction.name}, {swipe_type})"
+                        else:
+                            gesture_text += f" ({swipe_detector.direction.name})"
 
                 # Add source indicator (custom/default)
                 source_indicators = []

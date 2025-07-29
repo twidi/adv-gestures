@@ -577,10 +577,10 @@ class SnapDetector(HandGesturesDetector):
         return False
 
 
-class SwipeHandDetector(HandGesturesDetector):
-    """Unified swipe hand detector that detects swipes in any direction."""
+class SwipeDetector(HandGesturesDetector):
+    """Unified swipe detector that detects swipes in any direction by hand or index finger."""
 
-    gesture = Gestures.SWIPE_HAND
+    gesture = Gestures.SWIPE
     stateful_mode = StatefulMode.POST_DETECTION
     post_detection_duration = 0.5  # Report swipe for 0.5s after detection
 
@@ -629,6 +629,15 @@ class SwipeHandDetector(HandGesturesDetector):
             and self.pinky.is_nearly_straight_or_straight
         )
 
+    def index_only_shape(self) -> bool:
+        """Check if only the index finger is straight (for index swipe)."""
+        return (
+            self.index.is_nearly_straight_or_straight
+            and self.middle.is_not_straight_at_all
+            and self.ring.is_not_straight_at_all
+            and self.pinky.is_not_straight_at_all
+        )
+
     def matches(
         self,
         hand: Hand,
@@ -643,13 +652,20 @@ class SwipeHandDetector(HandGesturesDetector):
         if hand.default_gesture == Gestures.OPEN_PALM or Gestures.STOP in detected:
             return False
 
-        # Check fingers are straight AND swipe motion is detected
-        return self.hand_in_good_shape() and self.is_swiping
+        # Check if swipe motion is detected
+        if not self.is_swiping:
+            return False
+
+        # Check fingers for either hand swipe or index swipe
+        return self.hand_in_good_shape() or self.index_only_shape()
 
     def _stateful_start_tracking(self, now: float) -> DetectionState:
-        """Override to store the detected swipe direction in detection data."""
+        """Override to store the detected swipe direction and type in detection data."""
         detection = super()._stateful_start_tracking(now)
-        detection.data = {"direction": self._detected_direction}
+        # Determine if it's a hand swipe or index swipe
+        by_hand = self.hand_in_good_shape()
+        by_index = not by_hand and self.index_only_shape()
+        detection.data = {"direction": self._detected_direction, "by_hand": by_hand, "by_index": by_index}
         return detection
 
     @property
