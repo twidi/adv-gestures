@@ -22,7 +22,8 @@ class Gestures(str, Enum):
     PINCH_TOUCH = "Pinch_Touch"  # Pinch with thumb and index touching
     GUN = "Gun"
     FINGER_GUN = "Finger_Gun"  # Gun without the middle finger
-    AIR_TAP = "Air_Tap"  # Index finger held straight and still for 2 seconds
+    AIR_TAP = "Air_Tap"  # Index finger held straight and still for short delay
+    PRE_AIR_TAP = "Pre_Air_Tap"  # Index finger held straight and still before an air tap
     WAVE = "Wave"  # Open palm waving left-right motion
     SNAP = "Snap"  # Finger snap detected by before/after states
     SWIPE = "Swipe"  # Swipe in any direction by hand or index finger (direction and type stored in detection data)

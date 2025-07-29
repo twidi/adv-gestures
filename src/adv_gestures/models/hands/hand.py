@@ -73,7 +73,6 @@ class Hand(SmoothedBase):
         "custom_gestures",
         "gestures",
         "gestures_durations",
-        "custom_gestures_durations",
     )
 
     def __init__(self, handedness: Handedness, hands: Hands, config: Config) -> None:
@@ -1015,16 +1014,6 @@ class Hand(SmoothedBase):
             gesture: now - start_time
             for gesture, start_time in self._gestures_start_times.items()
             if gesture in self.gestures
-        }
-
-    @cached_property
-    def custom_gestures_durations(self) -> dict[Gestures, float]:
-        """Get the durations for all currently active custom gestures."""
-        now = time()
-        return {
-            gesture: now - start_time
-            for gesture, start_time in self._custom_gestures_start_times.items()
-            if gesture in self.custom_gestures
         }
 
     def is_gesture_disabled(self, gesture: Gestures) -> bool:

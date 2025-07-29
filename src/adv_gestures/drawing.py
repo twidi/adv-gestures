@@ -6,7 +6,7 @@ import cv2  # type: ignore[import-untyped]
 from .gestures import Gestures
 from .models.fingers import AnyFinger, FingerIndex, Thumb
 from .models.hands import Box, Hand, Hands, HandsDirectionalRelationship, Palm
-from .models.hands.hand_gestures import AirTapDetector, SwipeDetector
+from .models.hands.hand_gestures import AirTapDetector, PreAirTapDetector, SwipeDetector
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo
@@ -286,23 +286,21 @@ def draw_hand_marks(hand: Hand, image: OpenCVImage) -> OpenCVImage:
         )
 
     # Draw air tap indicator
-    air_tap_detector = cast(AirTapDetector, hand.gestures_detector.detectors[Gestures.AIR_TAP])
-    if (air_tap_state := air_tap_detector.tap_state) is not None:
-        # if tip_state is not None, tip_position is set
-        air_tap_x, air_tap_y = cast(tuple[float, float], air_tap_detector.tip_position)
-
-        # Calculate circle radius based on frame width (approximately 2% of width)
+    # Calculate circle radius based on frame width (approximately 2% of width)
+    if Gestures.PRE_AIR_TAP in hand.gestures or Gestures.AIR_TAP in hand.gestures:
         frame_width = image.shape[1]
         radius = int(frame_width * 0.02)
-
-        # Choose color based on tap state
-        if air_tap_state == "detected":
-            color = (255, 0, 255)  # Magenta for detected (post-detection)
-        else:  # "detecting"
-            color = (255, 100, 0)  # Blue for detecting (tracking)
-
-        # Draw circle (unfilled, just the border)
-        cv2.circle(image, (int(air_tap_x), int(air_tap_y)), radius, color, 2)
+        for gesture, color in (
+            (Gestures.PRE_AIR_TAP, (255, 100, 0)),  # Blue for PRE_AIR_TAP
+            (Gestures.AIR_TAP, (255, 0, 255)),  # Magenta for AIR_TAP
+        ):
+            if gesture not in hand.gestures:
+                continue
+            # Draw circle at the tip position if available
+            detector = cast(PreAirTapDetector | AirTapDetector, hand.gestures_detector.detectors[gesture])
+            if (tip_position := detector.tip_position) is not None:
+                tip_x, tip_y = tip_position
+                cv2.circle(image, (int(tip_x), int(tip_y)), radius, color, 2)
 
     return image
 

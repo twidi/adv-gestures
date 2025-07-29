@@ -455,33 +455,46 @@ class AirTapDetector(HandGesturesDetector):
 
     @property
     def tip_position(self) -> tuple[int, int] | None:
-        """Get the current tap position."""
-        # First, look for POST_DETECTING states (oldest first)
-
+        """Get the tap position when in POST_DETECTING state."""
+        # Only return position for POST_DETECTING states
         if post_detecting_states := self.post_detecting_detections:
             # Get the oldest POST_DETECTING state
             oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
             return cast(tuple[int, int], oldest.data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
 
-        # Otherwise, look for TRACKING states
-        if tracking_states := self.tracking_detections:
-            # Get the first tracking state
-            return cast(tuple[int, int], tracking_states[0].data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
-
         return None
+
+
+class PreAirTapDetector(HandGesturesDetector):
+    gesture = Gestures.PRE_AIR_TAP
+
+    air_tap_detector: AirTapDetector | None = None
+
+    def matches(
+        self,
+        hand: Hand,
+        thumb: Thumb,
+        index: IndexFinger,
+        middle: MiddleFinger,
+        ring: RingFinger,
+        pinky: PinkyFinger,
+        detected: GestureWeights,
+    ) -> bool:
+        if self.air_tap_detector is None:
+            self.air_tap_detector = cast(AirTapDetector, hand.gestures_detector.detectors[Gestures.AIR_TAP])
+        if self.air_tap_detector.tracking_detections:
+            return True
+        return False
 
     @property
-    def tap_state(self) -> str | None:
-        """Get the current tap state: 'detected' for post-detection, 'detecting' for tracking, None otherwise."""
-        # First, look for POST_DETECTING states (priority)
-        if self.post_detecting_detections:
-            return "detected"
-
-        # Otherwise, look for TRACKING states
-        if self.tracking_detections:
-            return "detecting"
-
-        return None
+    def tip_position(self) -> tuple[int, int] | None:
+        """Get the current tracking air tap position."""
+        if self.air_tap_detector is None:
+            return None
+        if not (tracking_states := self.air_tap_detector.tracking_detections):
+            return None
+        # Get the first tracking state
+        return cast(tuple[int, int], tracking_states[0].data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
 
 
 class WaveDetector(HandGesturesDetector):
