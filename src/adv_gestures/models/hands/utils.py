@@ -240,3 +240,10 @@ def oriented_boxes_overlap(
 
     # No separating axis found, boxes must overlap
     return True
+
+
+class Direction(str, Enum):
+    """Direction of movement."""
+
+    LEFT = "left"
+    RIGHT = "right"

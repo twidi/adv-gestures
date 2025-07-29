@@ -36,7 +36,7 @@ from ..fingers import (
 from ..landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
 from .hand_gestures import HandGesturesDetector
 from .palm import Palm
-from .utils import Box, Handedness
+from .utils import Box, Direction, Handedness
 
 if TYPE_CHECKING:
     from ...recognizer import StreamInfo
@@ -332,6 +332,130 @@ class Hand(SmoothedBase):
         return float(angle_deg)
 
     main_direction_angle = smoothed_optional_float(_calc_main_direction_angle)
+
+    def detect_direction_changes(
+        self,
+        duration_window: float = 1.0,
+        min_direction_changes: int = 2,
+        min_movement_angle: float = 2.5,
+        x_tolerance: float = 0.05,
+        max_time_since_last_change: float = 0.5,
+        require_recent_movement: bool = True,
+        recent_movement_window: float = 0.3,
+    ) -> tuple[bool, list[tuple[Direction, float]]]:
+        """Detect oscillating directional changes in hand movement.
+
+        Args:
+            duration_window: Time window in seconds to analyze movement
+            min_direction_changes: Minimum number of direction changes required
+            min_movement_angle: Minimum angle in degrees for significant movement
+            x_tolerance: Tolerance zone around x=0 to avoid noise
+            max_time_since_last_change: Maximum time since last direction change
+            require_recent_movement: Whether to require recent movement
+            recent_movement_window: Time window for recent movement check
+
+        Returns:
+            Tuple of (has_changes, list of (direction, time_ago) pairs)
+        """
+        if not self._direction_history:
+            return False, []
+
+        current_time = time()
+        min_movement_angle_rad = radians(min_movement_angle)
+
+        # Find directions within the duration window
+        cutoff_time = current_time - duration_window
+        directions_in_window = [(t, x, y) for t, x, y, _ in self._direction_history if t >= cutoff_time]
+
+        if len(directions_in_window) < 3:  # Need at least 3 points to detect oscillation
+            return False, []
+
+        # Check if we have data covering sufficient duration (at least 80% of window)
+        time_coverage = current_time - directions_in_window[0][0]
+        if time_coverage < duration_window * 0.8:
+            return False, []
+
+        # Detect direction changes based on X component sign changes
+        # Track direction changes with their direction
+        direction_changes: list[tuple[float, Direction]] = []
+        last_significant_x = None
+
+        for i, (t, x, _y) in enumerate(directions_in_window):
+            # Skip values in tolerance zone
+            if abs(x) < x_tolerance:
+                continue
+
+            current_sign = 1 if x > 0 else -1
+
+            if last_significant_x is not None:
+                last_sign = 1 if last_significant_x > 0 else -1
+                if current_sign != last_sign:
+                    # Direction change detected
+                    if i > 0:
+                        # Determine which direction we changed TO
+                        new_direction = Direction.RIGHT if current_sign > 0 else Direction.LEFT
+                        direction_changes.append((t, new_direction))
+
+            last_significant_x = x
+
+        # Check if we have enough direction changes
+        if len(direction_changes) < min_direction_changes:
+            return False, []
+
+        # Check that the last direction change is recent
+        # This ensures we stop detecting when hand stops moving
+        if direction_changes and max_time_since_last_change > 0:
+            last_change_time = direction_changes[-1][0]
+            time_since_last_change = current_time - last_change_time
+            if time_since_last_change > max_time_since_last_change:
+                return False, []
+
+        # Check for recent movement if required
+        if require_recent_movement:
+            recent_directions = [
+                (t, x, y) for t, x, y in directions_in_window if current_time - t <= recent_movement_window
+            ]
+            if len(recent_directions) < 2:
+                return False, []
+
+        # Verify angle changes are significant enough
+        # Check angles between consecutive significant directions
+        significant_directions = [(x, y) for _, x, y in directions_in_window if abs(x) >= x_tolerance]
+
+        if len(significant_directions) < 3:
+            return False, []
+
+        # Check angle between first and middle, middle and last directions
+        angle_verified = False
+        for i in range(1, len(significant_directions) - 1):
+            prev_x, prev_y = significant_directions[i - 1]
+            curr_x, curr_y = significant_directions[i]
+            next_x, next_y = significant_directions[i + 1]
+
+            # Calculate angles between vectors
+            # Angle between prev→curr and curr→next
+            dot1 = prev_x * curr_x + prev_y * curr_y
+            dot2 = curr_x * next_x + curr_y * next_y
+
+            # Clamp to avoid numerical errors with acos
+            dot1 = max(-1.0, min(1.0, dot1))
+            dot2 = max(-1.0, min(1.0, dot2))
+
+            angle1 = acos(dot1)
+            angle2 = acos(dot2)
+
+            # At least one angle should be significant
+            if angle1 >= min_movement_angle_rad or angle2 >= min_movement_angle_rad:
+                angle_verified = True
+                break
+
+        if not angle_verified:
+            return False, []
+
+        # Convert to list of (direction, time_ago) pairs
+        changes_with_time_ago = [(direction, current_time - timestamp) for timestamp, direction in direction_changes]
+
+        return True, changes_with_time_ago
 
     def get_finger_spread_angle(
         self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger

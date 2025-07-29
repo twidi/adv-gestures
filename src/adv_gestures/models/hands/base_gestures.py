@@ -129,7 +129,7 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     def _get_register_class(cls) -> type[BaseGestureDetector[Any]]:
         """Get the class used for registering gesture detectors."""
         for base in cls.__mro__[1:]:
-            if hasattr(base, "gestures_set") and not hasattr(base, "gesture"):
+            if not base.__name__.startswith("_") and hasattr(base, "gestures_set") and not hasattr(base, "gesture"):
                 return base
         raise ValueError(f"Class {cls.__name__} must have a 'gestures_set' attribute defined in a base class.")
 
