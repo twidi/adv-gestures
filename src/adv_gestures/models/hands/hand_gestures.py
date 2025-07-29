@@ -13,7 +13,7 @@ from .base_gestures import (
     Range,
     StatefulMode,
 )
-from .utils import Direction
+from .utils import Direction, Handedness
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -212,6 +212,37 @@ class StopDetector(HandGesturesDetector):
 class PinchDetector(HandGesturesDetector):
     gesture = Gestures.PINCH
 
+    def get_angle_between_thumb_and_index_tips(self) -> float | None:
+        """Calculate the angle between the thumb and index finger tips using their tip_direction_angle.
+
+        Returns:
+            - Positive angle (0 to 180) when fingers are diverging (pointing away from each other)
+            - Negative angle (-180 to 0) when fingers are converging (pointing towards each other)
+            - None if angles are not available.
+        """
+        thumb = self.hand.thumb
+        index = self.hand.index
+
+        thumb_angle = thumb.tip_direction_angle
+        index_angle = index.tip_direction_angle
+
+        if thumb_angle is None or index_angle is None:
+            return None
+
+        # Calculate the raw angle difference
+        angle_diff = index_angle - thumb_angle
+
+        # Normalize to -180 to 180 range
+        if angle_diff > 180:
+            angle_diff -= 360
+        elif angle_diff < -180:
+            angle_diff += 360
+
+        if self.hand.handedness == Handedness.RIGHT:
+            angle_diff = -angle_diff
+
+        return angle_diff
+
     def matches(
         self,
         hand: Hand,
@@ -224,9 +255,12 @@ class PinchDetector(HandGesturesDetector):
     ) -> bool:
         return (
             thumb.is_nearly_straight_or_straight
+            and not index.is_fully_bent
             and not middle.is_straight
             and not ring.is_straight
             and not pinky.is_straight
+            and (angle := self.get_angle_between_thumb_and_index_tips()) is not None
+            and -130 <= angle <= 75
         )
 
 
