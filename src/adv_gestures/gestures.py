@@ -35,6 +35,7 @@ class Gestures(str, Enum):
     CROSSED_FLAT = "Crossed_Flat"  # Both hands crossed with fingers straight
     CROSSED_FISTS = "Crossed_Fists"  # Both hands crossed with fingers in fist position
     TIME_OUT = "Time_Out"  # Two hands forming a T shape, perpendicular
+    FRAME = "Frame"  # Both hands forming a photo frame with thumbs and index fingers in L shape
 
 
 DEFAULT_GESTURES: set[Gestures] = {
@@ -52,6 +53,7 @@ TWO_HANDS_GESTURES: set[Gestures] = {
     Gestures.CROSSED_FLAT,
     Gestures.CROSSED_FISTS,
     Gestures.TIME_OUT,
+    Gestures.FRAME,
 }
 
 OVERRIDABLE_DEFAULT_GESTURES: set[Gestures] = {Gestures.VICTORY}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from ...gestures import TWO_HANDS_GESTURES, Gestures
 from ...smoothing import GestureWeights
@@ -183,6 +183,102 @@ class TimeOutDetector(TwoHandsGesturesDetector):
 
         # Check if intersection is in the middle part of the other hand
         return 0.4 <= intersection <= 0.8
+
+
+class FrameDetector(TwoHandsGesturesDetector):
+    gesture = Gestures.FRAME
+
+    def hand_in_good_shape(self, hand: Hand) -> bool:
+        # 1. Index must be extended
+        if not hand.index.is_nearly_straight_or_straight:
+            return False
+
+        # 2. Thumb must not be fully bent (no straightness test needed)
+        if hand.thumb.is_fully_bent:
+            return False
+
+        # 3. Other fingers must be bent
+        if not (
+            hand.middle.is_not_straight_at_all
+            and hand.ring.is_not_straight_at_all
+            and hand.pinky.is_not_straight_at_all
+        ):
+            return False
+
+        return True
+
+    def matches(self, hands: Hands, left: Hand, right: Hand, detected: GestureWeights) -> bool:
+        # Get tip direction angles
+        left_thumb_angle = left.thumb.tip_direction_angle
+        left_index_angle = left.index.straight_direction_angle
+        right_thumb_angle = right.thumb.tip_direction_angle
+        right_index_angle = right.index.straight_direction_angle
+
+        if any(angle is None for angle in [left_thumb_angle, left_index_angle, right_thumb_angle, right_index_angle]):
+            return False
+
+        # Type narrowing - we know these are not None
+        left_thumb_angle = cast(float, left_thumb_angle)
+        left_index_angle = cast(float, left_index_angle)
+        right_thumb_angle = cast(float, right_thumb_angle)
+        right_index_angle = cast(float, right_index_angle)
+
+        # Different tolerances for thumb and index
+        thumb_tolerance = 40  # More tolerance for thumbs
+        index_tolerance = 25  # Less tolerance for index fingers
+
+        if not -index_tolerance <= left_index_angle <= index_tolerance:
+            return False
+
+        if not 180 - index_tolerance <= right_index_angle or right_index_angle <= -180 + index_tolerance:
+            return False
+
+        # Config 1: left thumb up (~90°), right thumb down (~-90°)
+        config1_match = (90 - thumb_tolerance <= left_thumb_angle <= 90 + thumb_tolerance) and (
+            -90 - thumb_tolerance <= right_thumb_angle <= -90 + thumb_tolerance
+        )
+
+        # Config 2: left thumb down (~-90°), right thumb up (~90°)
+        config2_match = (-90 - thumb_tolerance <= left_thumb_angle <= -90 + thumb_tolerance) and (
+            90 - thumb_tolerance <= right_thumb_angle <= 90 + thumb_tolerance
+        )
+
+        if not (config1_match or config2_match):
+            return False
+
+        # Verify centroid ordering
+        left_thumb_centroid = left.thumb.centroid
+        right_thumb_centroid = right.thumb.centroid
+        left_index_centroid = left.index.centroid
+        right_index_centroid = right.index.centroid
+
+        if not all(
+            centroid
+            for centroid in [left_thumb_centroid, right_thumb_centroid, left_index_centroid, right_index_centroid]
+        ):
+            return False
+
+        # Type narrowing - we know these are not None
+        left_thumb_centroid = cast(tuple[float, float], left_thumb_centroid)
+        right_thumb_centroid = cast(tuple[float, float], right_thumb_centroid)
+        left_index_centroid = cast(tuple[float, float], left_index_centroid)
+        right_index_centroid = cast(tuple[float, float], right_index_centroid)
+
+        # Left thumb must be to the left of right thumb
+        if left_thumb_centroid[0] >= right_thumb_centroid[0]:
+            return False
+
+        # The index of the hand with thumb pointing down should have higher centroid
+        if config1_match:
+            # Config 1: right thumb down, so right index should be higher
+            if right_index_centroid[1] >= left_index_centroid[1]:
+                return False
+        else:  # config2_match
+            # Config 2: left thumb down, so left index should be higher
+            if left_index_centroid[1] >= right_index_centroid[1]:
+                return False
+
+        return True
 
 
 TwoHandsGesturesDetector._ensure_all_detectors_registered()

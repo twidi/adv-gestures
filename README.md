@@ -166,6 +166,7 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `CROSSED_FLAT` - Both hands crossed with fingers straight
 - `CROSSED_FISTS` - Both hands crossed with fingers in fist position
 - `TIME_OUT` - Two hands forming a T shape, perpendicular
+- `FRAME` - Photo frame with thumbs and index fingers forming L shapes
 
 ## Multiple Gesture Detection
 
