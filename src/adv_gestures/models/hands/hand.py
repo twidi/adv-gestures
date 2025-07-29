@@ -855,6 +855,10 @@ class Hand(SmoothedBase):
 
         # Apply the formula: p_F = (d_B + p_B × B) / F
         # where p_B is s (the intersection position on bbox line)
+        # Protect against division by zero
+        if F < 1e-10:
+            return None
+
         p_F = (d_B + s * B) / F
 
         return p_F
