@@ -34,9 +34,9 @@ from ..fingers import (
     Thumb,
 )
 from ..landmarks import FINGERS_LANDMARKS, PALM_LANDMARKS, HandLandmark, Landmark
+from ..utils import Box, Direction, Handedness
 from .hand_gestures import HandGesturesDetector
 from .palm import Palm
-from .utils import Box, Handedness, SwipeDirection
 
 if TYPE_CHECKING:
     from ...recognizer import StreamInfo
@@ -342,7 +342,7 @@ class Hand(SmoothedBase):
         max_time_since_last_change: float = 0.5,
         require_recent_movement: bool = True,
         recent_movement_window: float = 0.3,
-    ) -> tuple[bool, list[tuple[SwipeDirection, float]]]:
+    ) -> tuple[bool, list[tuple[Direction, float]]]:
         """Detect oscillating directional changes in hand movement.
 
         Args:
@@ -377,7 +377,7 @@ class Hand(SmoothedBase):
 
         # Detect direction changes based on X component sign changes
         # Track direction changes with their direction
-        direction_changes: list[tuple[float, SwipeDirection]] = []
+        direction_changes: list[tuple[float, Direction]] = []
         last_significant_x = None
 
         for i, (t, x, _y) in enumerate(directions_in_window):
@@ -393,7 +393,7 @@ class Hand(SmoothedBase):
                     # Direction change detected
                     if i > 0:
                         # Determine which direction we changed TO
-                        new_direction = SwipeDirection.RIGHT if current_sign > 0 else SwipeDirection.LEFT
+                        new_direction = Direction.RIGHT if current_sign > 0 else Direction.LEFT
                         direction_changes.append((t, new_direction))
 
             last_significant_x = x

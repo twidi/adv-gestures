@@ -16,9 +16,9 @@ from ...smoothing import (
     smoothed_bool,
     smoothed_optional_float,
 )
+from ..utils import Handedness, HandsDirectionalRelationship, oriented_boxes_overlap
 from .hand import Hand
 from .hands_gestures import TwoHandsGesturesDetector
-from .utils import Handedness, HandsDirectionalRelationship
 
 if TYPE_CHECKING:
     from ...recognizer import Recognizer, StreamInfo
@@ -361,7 +361,5 @@ class Hands(SmoothedBase):
 
         if not left_corners or not right_corners:
             return None
-
-        from .utils import oriented_boxes_overlap
 
         return oriented_boxes_overlap(left_corners, right_corners)

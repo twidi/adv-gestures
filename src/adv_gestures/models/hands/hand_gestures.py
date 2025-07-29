@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from ...gestures import CUSTOM_GESTURES, Gestures
 from ...smoothing import GestureWeights, SmoothedBase, smoothed_bool
 from ..fingers import IndexFinger, MiddleFinger, PinkyFinger, RingFinger, Thumb
+from ..utils import Direction, Handedness, SwipeMode
 from .base_gestures import (
     BaseGestureDetector,
     DetectionState,
     Range,
     StatefulMode,
 )
-from .utils import Handedness, SwipeDirection, SwipeMode
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -520,6 +520,33 @@ class WaveDetector(HandGesturesDetector):
         return (hand.default_gesture == Gestures.OPEN_PALM or Gestures.STOP in detected) and self.hand_is_waving
 
 
+class NoDetector(HandGesturesDetector):
+    gesture = Gestures.NO
+
+    def _calc_index_is_waving(self) -> bool:
+        """Check if the index finger is performing a waving motion (oscillating left-right movement)."""
+        has_changes, _ = self.index.detect_direction_changes(
+            duration_window=1.0,
+            min_direction_changes=2,
+            min_movement_angle=2.5,
+        )
+        return has_changes
+
+    index_is_waving = smoothed_bool(_calc_index_is_waving)
+
+    def matches(
+        self,
+        hand: Hand,
+        thumb: Thumb,
+        index: IndexFinger,
+        middle: MiddleFinger,
+        ring: RingFinger,
+        pinky: PinkyFinger,
+        detected: GestureWeights,
+    ) -> bool:
+        return hand.default_gesture == Gestures.POINTING_UP and self.index_is_waving
+
+
 class SnapDetector(HandGesturesDetector):
     gesture = Gestures.SNAP
     stateful_mode = StatefulMode.POST_DETECTION
@@ -595,7 +622,7 @@ class SwipeDetector(HandGesturesDetector):
 
     def __init__(self, hand: Hand):
         super().__init__(hand)
-        self._detected_direction: SwipeDirection | None = None
+        self._detected_direction: Direction | None = None
 
     def _calc_is_swiping(self) -> bool:
         """Check if hand is currently performing a swipe motion and capture direction."""

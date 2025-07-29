@@ -6,12 +6,12 @@ import cv2  # type: ignore[import-untyped]
 from .gestures import Gestures
 from .models.fingers import AnyFinger, FingerIndex, Thumb
 from .models.hands import (
-    Box,
     Hand,
     Hands,
     HandsDirectionalRelationship,
     Palm,
 )
+from .models.utils import Box
 
 if TYPE_CHECKING:
     from .recognizer import StreamInfo

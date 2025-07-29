@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 from ...gestures import TWO_HANDS_GESTURES, Gestures
 from ...smoothing import GestureWeights
+from ..utils import HandsDirectionalRelationship
 from .base_gestures import BaseGestureDetector, Range, StatefulMode, direction_matches
-from .utils import HandsDirectionalRelationship
 
 if TYPE_CHECKING:
     from .hand import Hand

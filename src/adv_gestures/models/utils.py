@@ -242,7 +242,7 @@ def oriented_boxes_overlap(
     return True
 
 
-class SwipeDirection(str, Enum):
+class Direction(str, Enum):
     """Direction of swipe movement."""
 
     LEFT = "left"

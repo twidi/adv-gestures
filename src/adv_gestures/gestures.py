@@ -27,6 +27,7 @@ class Gestures(str, Enum):
     WAVE = "Wave"  # Open palm waving left-right motion
     SNAP = "Snap"  # Finger snap detected by before/after states
     SWIPE = "Swipe"  # Swipe in any direction by hand or index finger (direction and type stored in detection data)
+    NO = "No"  # Index finger waving left-right with other fingers bent
 
     # Hands gestures (gestures implying both hands)
     PRAY = "Pray"  # Both hands in a prayer position, palms together, fingers pointing up

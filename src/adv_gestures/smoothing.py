@@ -4,12 +4,10 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast, overload
+from typing import Any, Generic, Protocol, TypeVar, cast, overload
 
 from .gestures import Gestures
-
-if TYPE_CHECKING:
-    from .models.hands.utils import Box
+from .models.utils import Box
 
 # Smoothing configuration constants
 SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)
