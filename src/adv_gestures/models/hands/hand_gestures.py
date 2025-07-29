@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import acos, radians, sqrt
+from math import sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, cast
 

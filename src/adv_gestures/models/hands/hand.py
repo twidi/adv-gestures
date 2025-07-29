@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from functools import cached_property
-from math import inf, sqrt
+from math import acos, atan2, degrees, inf, radians, sqrt
 from time import time
 from typing import TYPE_CHECKING, ClassVar, cast
 
@@ -327,9 +327,9 @@ class Hand(SmoothedBase):
 
         dx, dy = direction
         # Calculate angle in radians and convert to degrees
-        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
-        angle_deg = np.degrees(angle_rad)
-        return float(angle_deg)
+        angle_rad = atan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = degrees(angle_rad)
+        return angle_deg
 
     main_direction_angle = smoothed_optional_float(_calc_main_direction_angle)
 
@@ -509,8 +509,8 @@ class Hand(SmoothedBase):
         cross_product = dir1[0] * dir2[1] - dir1[1] * dir2[0]
 
         # Calculate angle in degrees (always positive from arccos)
-        angle_rad = np.arccos(dot_product)
-        angle_deg = np.degrees(angle_rad)
+        angle_rad = acos(dot_product)
+        angle_deg = degrees(angle_rad)
 
         # If directions are parallel (cross product ≈ 0), angle is 0
         if abs(cross_product) < 0.001:
@@ -526,7 +526,7 @@ class Hand(SmoothedBase):
 
         # If t1 < 0, intersection is behind the base (fingers form a V, spreading)
         # If t1 > 0, intersection is ahead of the base (fingers converging)
-        return float(angle_deg if t1 < 0 else -angle_deg)
+        return angle_deg if t1 < 0 else -angle_deg
 
     def are_fingers_touching(self, finger1: FingerIndex | AnyFinger, finger2: FingerIndex | AnyFinger) -> bool:
         """Check if two fingers are touching, computing and caching the result if needed."""
@@ -885,7 +885,7 @@ class Hand(SmoothedBase):
         x = frame_entry[0] + p_f * (frame_exit[0] - frame_entry[0])
         y = frame_entry[1] + p_f * (frame_exit[1] - frame_entry[1])
 
-        return (x, y)
+        return x, y
 
     def _calc_pinch_box(self) -> Box | None:
         """Calculate the bounding box around the pinch gesture fingertips.

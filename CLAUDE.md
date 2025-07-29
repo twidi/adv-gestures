@@ -135,3 +135,8 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 ## Technical Considerations
 - On z-axis coordinate handling:
   - We cannot reliably use the z-axis because MediaPipe landmark z-values are not consistently reliable
+
+## Mathematical Operations
+
+- Do not use NumPy for mathematical operations that do not involve NumPy arrays
+  - Use `degrees()`, `atan2()`, `acos()`, etc. from the `math` module instead of their NumPy counterparts

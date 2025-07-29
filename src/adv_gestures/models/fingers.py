@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import deque
 from enum import IntEnum
 from functools import cached_property
-from math import sqrt
+from math import acos, atan2, degrees, exp, sqrt
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar
 
@@ -184,10 +184,10 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         cos_angle = np.clip(cos_angle, -1.0, 1.0)
 
         # Convert to degrees
-        angle_rad = np.arccos(cos_angle)
-        angle_deg = np.degrees(angle_rad)
+        angle_rad = acos(cos_angle)
+        angle_deg = degrees(angle_rad)
 
-        return float(angle_deg)
+        return angle_deg
 
     fold_angle = smoothed_optional_float(_calc_fold_angle)
 
@@ -211,7 +211,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         dy = last.y - second_last.y
 
         # Normalize the vector
-        magnitude = np.sqrt(dx**2 + dy**2)
+        magnitude = sqrt(dx**2 + dy**2)
         if magnitude < 0.001:  # Avoid division by zero
             return None
 
@@ -233,9 +233,9 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
         dx, dy = direction
         # Calculate angle in radians and convert to degrees
-        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
-        angle_deg = np.degrees(angle_rad)
-        return float(angle_deg)
+        angle_rad = atan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = degrees(angle_rad)
+        return angle_deg
 
     tip_direction_angle = smoothed_optional_float(_calc_tip_direction_angle)
 
@@ -254,7 +254,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         dy = self.end_point[1] - self.start_point[1]
 
         # Normalize the vector
-        magnitude = np.sqrt(dx**2 + dy**2)
+        magnitude = sqrt(dx**2 + dy**2)
         if magnitude < 0.001:  # Avoid division by zero
             return None
 
@@ -276,9 +276,9 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
         dx, dy = direction
         # Calculate angle in radians and convert to degrees
-        angle_rad = np.arctan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
-        angle_deg = np.degrees(angle_rad)
-        return float(angle_deg)
+        angle_rad = atan2(-dy, dx)  # Negative dy because y increases downward in image coordinates
+        angle_deg = degrees(angle_rad)
+        return angle_deg
 
     straight_direction_angle = smoothed_optional_float(_calc_straight_direction_angle)
 
@@ -343,7 +343,7 @@ class Thumb(Finger[ThumbConfig]):
         x2, y2 = x_coords[-1], y_coords[-1]
 
         # Calculate thumb length for normalization
-        thumb_length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        thumb_length = sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
         if thumb_length < min_denominator_threshold:
             return 0.0
@@ -357,7 +357,7 @@ class Thumb(Finger[ThumbConfig]):
             # Using formula: |ax + by + c| / sqrt(a^2 + b^2)
             # where line is: (y2-y1)x - (x2-x1)y + x2*y1 - y2*x1 = 0
             numerator = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1)
-            denominator = np.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
+            denominator = sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
 
             if denominator > min_denominator_threshold:  # Avoid division by zero
                 distance = numerator / denominator
@@ -372,7 +372,7 @@ class Thumb(Finger[ThumbConfig]):
             # Linear decay from 1.0 to 0 as deviation increases
             score = max(0.0, 1.0 - (max_deviation / max_deviation_for_zero_score))
 
-        return float(score)
+        return score
 
     straightness_score = smoothed_float(_calc_straightness_score)
 
@@ -418,7 +418,7 @@ class OtherFinger(Finger[FingerConfig]):
         for i in range(len(self.landmarks) - 1):
             dx = x_coords[i + 1] - x_coords[i]
             dy = y_coords[i + 1] - y_coords[i]
-            segment_length = np.sqrt(dx**2 + dy**2)
+            segment_length = sqrt(dx**2 + dy**2)
             segment_lengths.append(segment_length)
 
         # For fingers (not thumb), expect 3 segments: MCP-PIP, PIP-DIP, DIP-TIP
@@ -434,7 +434,7 @@ class OtherFinger(Finger[FingerConfig]):
                     # Convert ratio to score: at threshold = segment_ratio_score_at_threshold, higher ratios decay
                     excess_ratio = ratio - distal_segments_max_ratio
                     # Use exponential decay for excessive ratios
-                    segment_ratio_score = segment_ratio_score_at_threshold * np.exp(
+                    segment_ratio_score = segment_ratio_score_at_threshold * exp(
                         -excess_ratio * segment_ratio_decay_rate
                     )
                 else:
@@ -460,17 +460,17 @@ class OtherFinger(Finger[FingerConfig]):
 
                 # Calculate angle between vectors using dot product
                 dot_product = v1[0] * v2[0] + v1[1] * v2[1]
-                mag1 = np.sqrt(v1[0] ** 2 + v1[1] ** 2)
-                mag2 = np.sqrt(v2[0] ** 2 + v2[1] ** 2)
+                mag1 = sqrt(v1[0] ** 2 + v1[1] ** 2)
+                mag2 = sqrt(v2[0] ** 2 + v2[1] ** 2)
 
                 if mag1 > min_magnitude_threshold and mag2 > min_magnitude_threshold:  # Avoid division by zero
                     cos_angle = dot_product / (mag1 * mag2)
                     # Clamp to [-1, 1] to handle numerical errors
                     cos_angle = max(-1, min(1, cos_angle))
-                    angle = np.arccos(cos_angle)
+                    angle = acos(cos_angle)
 
                     # Convert to degrees for easier interpretation
-                    angle_degrees = np.degrees(angle)
+                    angle_degrees = degrees(angle)
                     max_found_angle = max(max_found_angle, angle_degrees)
 
         # Convert angle to score: 0° = 1.0, max_angle_degrees = angle_score_at_threshold, higher angles decay to 0
@@ -481,12 +481,12 @@ class OtherFinger(Finger[FingerConfig]):
             # Beyond threshold: exponential decay from angle_score_at_threshold to 0
             excess_angle = max_found_angle - max_angle_degrees
             # Use exponential decay: score decreases rapidly after threshold
-            angle_score = angle_score_at_threshold * np.exp(-excess_angle / angle_decay_rate)
+            angle_score = angle_score_at_threshold * exp(-excess_angle / angle_decay_rate)
 
         # Combine both scores (weighted average: angle is more important)
         combined_score = angle_score_weight * angle_score + segment_ratio_weight * segment_ratio_score
 
-        return float(combined_score)
+        return combined_score
 
     straightness_score = smoothed_float(_calc_straightness_score)
 

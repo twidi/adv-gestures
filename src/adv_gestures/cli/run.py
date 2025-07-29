@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+from math import atan2, degrees
 from pathlib import Path
 from typing import cast
 
 import cv2  # type: ignore[import-untyped]
-import numpy as np
 import typer
 
 from ..cameras import CameraInfo
@@ -113,9 +113,7 @@ def print_hands_info(hands: Hands, stream_info: StreamInfo) -> None:
 
             if finger.tip_direction:
                 dx, dy = finger.tip_direction
-                tip_angle = np.degrees(
-                    np.arctan2(-dy, dx)
-                )  # Negative dy because y increases downward in image coordinates
+                tip_angle = degrees(atan2(-dy, dx))  # Negative dy because y increases downward in image coordinates
                 status.append(f"tip_angle:{tip_angle:.0f}°")
 
             status_str = ", ".join(status) if status else "neutral"
