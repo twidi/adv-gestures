@@ -702,9 +702,9 @@ class SwipeDetector(HandGesturesDetector):
         if self.hand_in_good_shape():
             mode = SwipeMode.HAND
         elif self.index_only_shape():
-            mode = SwipeMode.FINGER
+            mode = SwipeMode.INDEX
         else:
-            raise ValueError("Swipe detection logic should ensure one of the mode HAND/FINGER is matched.")
+            raise ValueError("Swipe detection logic should ensure one of the mode HAND/INDEX is matched.")
         detection.data = {"direction": self._detected_direction, "mode": mode}
         return detection
 

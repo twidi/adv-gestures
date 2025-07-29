@@ -39,6 +39,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 2. **Models** (`src/adv_gestures/models/`): Type-safe data structures
    - `fingers.py`: Finger representations with landmark positions
    - `landmarks.py`: Hand landmark definitions
+   - `utils.py`: Model utility functions
    - `hands/` package: Refactored hand models
      - `base_gestures.py`: Unified base class for all gesture detectors (stateless and stateful)
      - `hand.py`: Single hand representation with finger tracking
@@ -46,7 +47,6 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
      - `hands.py`: Collection of hands
      - `hands_gestures.py`: Two-hands gesture detectors (PRAY, CLAP)
      - `palm.py`: Palm-related functionality
-     - `utils.py`: Hand utility functions
 
 3. **Gestures** (`src/adv_gestures/gestures.py`): Gesture definitions
    - Gesture enums (both MediaPipe built-in and custom)

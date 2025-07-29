@@ -253,4 +253,4 @@ class SwipeMode(str, Enum):
     """Mode of swipe detection."""
 
     HAND = "hand"  # Swipe detected by hand movement
-    FINGER = "finger"  # Swipe detected by index finger movement
+    INDEX = "index"  # Swipe detected by index finger movement

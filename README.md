@@ -153,13 +153,19 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `PINCH_TOUCH` - Pinch + index and thumb touching
 - `GUN` - Gun gesture
 - `FINGER_GUN` - Finger gun (without middle finger)
-- `AIR_TAP` - Index finger held straight and still for a certain delay
+- `AIR_TAP` - Index finger held straight and still for a certain delay ("tap_position" available in gesture data)
+- `PRE_AIR_TAP` - Index finger held straight and still before an air tap ("tap_position" available in gesture data)
 - `WAVE` - Open palm waving left-right motion
 - `SNAP` - Finger snapping
+- `SWIPE` - Swipe in any direction by hand or index finger ("direction" (left/right) and "mode" (hand/index) available in gesture data)
+- `NO` - Index finger waving left-right with other fingers bent
 
 ### Two-Hands Gestures
 - `PRAY` - Both hands in a prayer position, palms together, fingers pointing up
-- `CLAP` - Hands joined briefly (50-500ms) then separated, detected after separation
+- `CLAP` - Hands joined briefly (less than 1 second) then separated
+- `CROSSED_FLAT` - Both hands crossed with fingers straight
+- `CROSSED_FISTS` - Both hands crossed with fingers in fist position
+- `TIME_OUT` - Two hands forming a T shape, perpendicular
 
 ## Multiple Gesture Detection
 
@@ -223,6 +229,7 @@ adv-gestures/
 │       ├── __init__.py  # Models package initialization
 │       ├── fingers.py   # Finger tracking
 │       ├── landmarks.py # MediaPipe landmarks
+│       ├── utils.py     # Model utility functions
 │       └── hands/       # Hand models package
 │           ├── __init__.py  # Hands package initialization
 │           ├── hand.py      # Single hand representation
@@ -230,8 +237,7 @@ adv-gestures/
 │           ├── hand_gestures.py  # Single hand gesture detectors
 │           ├── hands.py     # Hands collection
 │           ├── hands_gestures.py # Two-hands gesture detectors
-│           ├── palm.py      # Palm-related functionality
-│           └── utils.py     # Hand utility functions
+│           └── palm.py      # Palm-related functionality
 ├── Makefile            # Development commands
 └── pyproject.toml      # Project configuration
 ```
