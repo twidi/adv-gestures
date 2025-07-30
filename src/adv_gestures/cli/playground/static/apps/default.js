@@ -19,10 +19,6 @@ export class DefaultApplication extends BaseApplication {
         // This method should never be called as default app has no icon in the icon bar
     }
 
-    update(handsData) {
-        // Default app doesn't need to process data for now
-    }
-
     draw() {
         if (!this.ctx || !this.isActive) return;
         

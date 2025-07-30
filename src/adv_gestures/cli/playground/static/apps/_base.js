@@ -1,4 +1,4 @@
-import { DP } from '../drawing-primitives.js';
+import { DP, DrawingStyles } from '../drawing-primitives.js';
 
 export class BaseApplication {
     constructor(name) {
@@ -8,6 +8,9 @@ export class BaseApplication {
         this.isActive = false;
         this.width = 0;
         this.height = 0;
+        this.showCursors = true;
+        this.handsData = null;
+        this.scale = null; // Will be {x, y} when stream info is available
     }
 
     createCanvas(width, height) {
@@ -29,6 +32,12 @@ export class BaseApplication {
             this.canvas.height = height;
             this.width = width;
             this.height = height;
+            if (this.handsData?.stream_info) {
+                this.scale = {
+                    x: this.width / this.handsData.stream_info.width,
+                    y: this.height / this.handsData.stream_info.height
+                }
+            }
         }
     }
 
@@ -69,8 +78,18 @@ export class BaseApplication {
     }
 
     update(handsData) {
-        // Override in subclasses if needed
-        // For now, does nothing as specified
+        // Store handsData for future use
+        this.handsData = handsData;
+        
+        // Update scale if stream info is available
+        if (!this.scale && handsData?.stream_info) {
+            this.scale = {
+                x: this.width / handsData.stream_info.width,
+                y: this.height / handsData.stream_info.height
+            };
+        }
+        
+        // Override in subclasses if needed for additional functionality
     }
 
     draw() {
@@ -78,6 +97,67 @@ export class BaseApplication {
         // Clear canvas by default
         if (this.ctx) {
             DP.clearCanvas(this.ctx);
+        }
+    }
+
+    scaleX(value) {
+        if (!this.scale) return value;
+        return value * this.scale.x;
+    }
+
+    scaleY(value) {
+        if (!this.scale) return value;
+        return value * this.scale.y;
+    }
+
+    scalePoint(point) {
+        if (!this.scale || !point) return point;
+        return {
+            x: point.x * this.scale.x,
+            y: point.y * this.scale.y
+        };
+    }
+
+    drawCursors() {
+        // Only draw if showCursors is true and we have context and hands data
+        if (!this.showCursors || !this.ctx || !this.handsData) return;
+
+        const ctx = this.ctx;
+        const cursorRadius = 10;
+        const cursorColor = DrawingStyles.colors.accent;
+
+        // Process each hand
+        for (const hand of this.handsData.hands) {
+            if (!hand.fingers || !hand.fingers.INDEX) continue;
+
+            const indexFinger = hand.fingers.INDEX;
+            
+            // Check if index finger is straight or nearly straight
+            if (!indexFinger.is_fully_bent) {
+                const tip = indexFinger.end_point;
+                if (!tip) continue;
+
+                // Scale the tip coordinates
+                const scaledTip = this.scalePoint(tip);
+                const x = scaledTip.x;
+                const y = scaledTip.y;
+
+                // Draw cursor circle
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, cursorRadius, 0, Math.PI * 2);
+                ctx.fillStyle = cursorColor;
+                ctx.globalAlpha = 0.8;
+                ctx.fill();
+                
+                // Add a subtle border
+                ctx.strokeStyle = cursorColor;
+                ctx.globalAlpha = 1;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
         }
     }
 }

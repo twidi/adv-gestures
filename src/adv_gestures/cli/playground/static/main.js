@@ -369,6 +369,9 @@ function setupSSE() {
 
 // Process snapshot data
 function processSnapshot(data) {
+
+    data = enhanceData(data);
+
     // Store stream info
     if (data.stream_info) {
         const hadStreamInfo = !!state.streamInfo;
@@ -388,6 +391,16 @@ function processSnapshot(data) {
         state.appManager.update(data);
         state.appManager.draw();
     }
+}
+
+// Enhance data with additional properties if needed
+function enhanceData(data) {
+    if (data) {
+        // Save all visible hands. Never access via index 0 for left or index 1 for right
+        // If direct access to left/right hands is needed, use data.left and data.right
+        data.hands = [data.left, data.right].filter(hand => hand !== null && hand !== undefined && hand.is_visible);
+    }
+    return data;
 }
 
 // Check for gesture changes and log them

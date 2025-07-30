@@ -4,8 +4,6 @@ import { DP, DrawingStyles } from '../drawing-primitives.js';
 export class DebugApplication extends BaseApplication {
     constructor() {
         super('debug');
-        this.streamInfo = null;
-        this.handsData = null;
     }
     
     drawIconContent(ctx, size, isActive) {
@@ -14,30 +12,13 @@ export class DebugApplication extends BaseApplication {
         DP.drawText(ctx, 'D', size/2, size/2, `bold ${size * 0.6}px`, color, 'center', 'middle');
     }
 
-    setStreamInfo(streamInfo) {
-        this.streamInfo = streamInfo;
-    }
-
-    update(handsData) {
-        this.handsData = handsData;
-        
-        // Store stream info if available
-        if (handsData.stream_info) {
-            this.streamInfo = handsData.stream_info;
-        }
-    }
-
     draw() {
         if (!this.ctx || !this.isActive) return;
         
         // Clear canvas
         DP.clearCanvas(this.ctx);
         
-        if (!this.streamInfo || !this.handsData) return;
-        
-        // Calculate scale factors - canvas size matches video element size
-        const scaleX = this.width / this.streamInfo.width;
-        const scaleY = this.height / this.streamInfo.height;
+        if (!this.handsData || !this.scale) return;
         
         // Draw bounding boxes for each hand
         this.ctx.strokeStyle = DrawingStyles.colors.accent;
@@ -47,10 +28,12 @@ export class DebugApplication extends BaseApplication {
         // Draw left hand bounding box
         if (this.handsData.left && this.handsData.left.bounding_box) {
             const { top_left, bottom_right } = this.handsData.left.bounding_box;
-            const displayX = top_left.x * scaleX;
-            const displayY = top_left.y * scaleY;
-            const displayWidth = (bottom_right.x - top_left.x) * scaleX;
-            const displayHeight = (bottom_right.y - top_left.y) * scaleY;
+            const scaledTopLeft = this.scalePoint(top_left);
+            const scaledBottomRight = this.scalePoint(bottom_right);
+            const displayX = scaledTopLeft.x;
+            const displayY = scaledTopLeft.y;
+            const displayWidth = scaledBottomRight.x - scaledTopLeft.x;
+            const displayHeight = scaledBottomRight.y - scaledTopLeft.y;
             DP.roundedRect(this.ctx, displayX, displayY, displayWidth, displayHeight, DrawingStyles.metrics.borderRadius);
             this.ctx.stroke();
             
@@ -61,10 +44,12 @@ export class DebugApplication extends BaseApplication {
         // Draw right hand bounding box
         if (this.handsData.right && this.handsData.right.bounding_box) {
             const { top_left, bottom_right } = this.handsData.right.bounding_box;
-            const displayX = top_left.x * scaleX;
-            const displayY = top_left.y * scaleY;
-            const displayWidth = (bottom_right.x - top_left.x) * scaleX;
-            const displayHeight = (bottom_right.y - top_left.y) * scaleY;
+            const scaledTopLeft = this.scalePoint(top_left);
+            const scaledBottomRight = this.scalePoint(bottom_right);
+            const displayX = scaledTopLeft.x;
+            const displayY = scaledTopLeft.y;
+            const displayWidth = scaledBottomRight.x - scaledTopLeft.x;
+            const displayHeight = scaledBottomRight.y - scaledTopLeft.y;
             DP.roundedRect(this.ctx, displayX, displayY, displayWidth, displayHeight, DrawingStyles.metrics.borderRadius);
             this.ctx.stroke();
             
