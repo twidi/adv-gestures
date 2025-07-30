@@ -10,8 +10,8 @@ from .gestures import Gestures
 from .models.utils import Box
 
 # Smoothing configuration constants
-SMOOTHING_WINDOW = 0.1  # Window for all smoothing operations (in seconds)
-SMOOTHING_EMA_WEIGHT = 0.3  # Weight for new values in exponential moving average (0-1)
+SMOOTHING_WINDOW = 0.05  # Window for all smoothing operations (in seconds)
+SMOOTHING_EMA_WEIGHT = 0.8  # Weight for new values in exponential moving average (0-1)
 GESTURE_SMOOTHING_WINDOW = 0.3  # Window for gesture smoothing operations (in seconds)
 
 T = TypeVar("T")
