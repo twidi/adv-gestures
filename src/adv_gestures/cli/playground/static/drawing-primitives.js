@@ -152,6 +152,82 @@ export class DrawingPrimitives {
     }
     
     /**
+     * Draw a ripple effect animation
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {number} progress - Animation progress (0-1)
+     * @param {Object} options - Optional parameters
+     * @param {number} options.rippleCount - Number of ripple circles (default: 3)
+     * @param {number} options.maxRadius - Maximum radius (default: 50)
+     * @param {string} options.color - Color (default: accent color)
+     * @param {number} options.lineWidth - Line width (default: 3)
+     */
+    static drawRippleEffect(ctx, x, y, progress, options = {}) {
+        
+        // Default options
+        const rippleCount = options.rippleCount || 3;
+        const maxRadius = options.maxRadius || 50;
+        const color = options.color || DrawingStyles.colors.accent;
+        const lineWidth = options.lineWidth || 3;
+        
+        for (let i = 0; i < rippleCount; i++) {
+            const rippleDelay = i * 0.15; // Stagger the ripples
+            const rippleProgress = Math.max(0, Math.min((progress - rippleDelay) / (1 - rippleDelay), 1));
+            
+            if (rippleProgress > 0 && rippleProgress < 1) {
+                const radius = rippleProgress * maxRadius;
+                const opacity = (1 - rippleProgress) * 0.6;
+                
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lineWidth;
+                ctx.globalAlpha = opacity;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    }
+    
+    /**
+     * Draw a progress arc (circular progress indicator)
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - Center X position
+     * @param {number} y - Center Y position
+     * @param {number} radius - Radius of the arc
+     * @param {number} progress - Progress value (0-1)
+     * @param {Object} options - Optional parameters
+     * @param {string} options.color - Color (default: accent color)
+     * @param {number} options.lineWidth - Line width (default: 3)
+     * @param {number} options.startAngle - Starting angle in radians (default: -π/2 for 12 o'clock)
+     * @param {boolean} options.clockwise - Direction of progress (default: true)
+     * @param {number} options.opacity - Opacity (default: 0.8)
+     */
+    static drawProgressArc(ctx, x, y, radius, progress, options = {}) {
+        if (progress <= 0) return;
+        
+        const color = options.color || DrawingStyles.colors.accent;
+        const lineWidth = options.lineWidth || 3;
+        const startAngle = options.startAngle !== undefined ? options.startAngle : -Math.PI / 2;
+        const clockwise = options.clockwise !== undefined ? options.clockwise : true;
+        const opacity = options.opacity !== undefined ? options.opacity : 0.8;
+        
+        const angleRange = Math.PI * 2 * progress;
+        const endAngle = clockwise ? startAngle + angleRange : startAngle - angleRange;
+        
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, startAngle, endAngle, !clockwise);
+        ctx.stroke();
+        ctx.restore();
+    }
+    
+    /**
      * Clear the entire canvas
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      */

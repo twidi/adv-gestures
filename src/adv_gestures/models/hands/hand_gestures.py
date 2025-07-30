@@ -453,6 +453,15 @@ class AirTapDetector(HandGesturesDetector):
         self._last_removed_tip_position = None
         return True
 
+    def get_data(self) -> dict[str, Any] | None:
+        result = super().get_data()
+        if not result:
+            return result
+        return result | {
+            "max_duration": self.post_detection_duration,
+            "elapsed_since_tap": time() - self.post_detecting_detections[0].post_detection_start,  # type: ignore[operator] # post_detection_start is set when setting the state to POST_DETECTING
+        }
+
 
 class PreAirTapDetector(HandGesturesDetector):
     gesture = Gestures.PRE_AIR_TAP
@@ -469,8 +478,16 @@ class PreAirTapDetector(HandGesturesDetector):
         pinky: PinkyFinger,
         detected: GestureWeights,
     ) -> bool:
-        if self.air_tap_detector.tracking_detections:
-            return True
+        if not self.air_tap_detector.tracking_detections:
+            return False
+
+        # Check if at least one tracking detection has exceeded min_gesture_duration
+        now = time()
+        for detection in self.air_tap_detector.tracking_detections:
+            duration = now - detection.tracking_start
+            if duration >= self.air_tap_detector.min_gesture_duration:
+                return True
+
         return False
 
     @property
@@ -483,13 +500,26 @@ class PreAirTapDetector(HandGesturesDetector):
         data = super().get_data()
         if not self.air_tap_detector.tracking_detections:
             return data
-        if (air_tap_data := self.air_tap_detector.tracking_detections[0].data) is None:
-            return data
-        if "tap_position" not in air_tap_data:
-            return data
+
+        # Get the first tracking detection (should be the oldest)
+        detection = self.air_tap_detector.tracking_detections[0]
+
+        # Calculate current duration
+        now = time()
+        current_duration = now - detection.tracking_start
+
+        # Ensure we have a dict to return
         if data is None:
             data = {}
-        data["tap_position"] = air_tap_data["tap_position"]
+
+        # Add duration info
+        data["duration"] = max(0.0, current_duration - self.air_tap_detector.min_gesture_duration)
+        data["max_duration"] = self.air_tap_detector.max_gesture_duration - self.air_tap_detector.min_gesture_duration
+
+        # Add tap position if available
+        if detection.data and "tap_position" in detection.data:
+            data["tap_position"] = detection.data["tap_position"]
+
         return data
 
 

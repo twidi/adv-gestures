@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from operator import attrgetter
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias, TypeVar
 
@@ -276,7 +277,7 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     @property
     def tracking_detections(self) -> list[DetectionState]:
         """Get all currently tracking detections."""
-        return [d for d in self.tracked_states if d.is_tracking]
+        return sorted([d for d in self.tracked_states if d.is_tracking], key=attrgetter("tracking_start"))
 
     @property
     def active_detections(self) -> list[DetectionState]:
@@ -285,8 +286,8 @@ class BaseGestureDetector(Generic[WithGesturesType]):
 
     @property
     def post_detecting_detections(self) -> list[DetectionState]:
-        """Get all currently post-detecting detections."""
-        return [d for d in self.tracked_states if d.is_post_detecting]
+        """Get all currently post-detecting detections, the oldest first."""
+        return sorted([d for d in self.tracked_states if d.is_post_detecting], key=attrgetter("post_detection_start"))
 
     @staticmethod
     def hand_matches_direction(hand: Hand, range_: Range | None) -> bool:
@@ -314,6 +315,5 @@ class BaseGestureDetector(Generic[WithGesturesType]):
         """Get data from the oldest post-detecting detection."""
         if post_detecting_states := self.post_detecting_detections:
             # Get the oldest POST_DETECTING state
-            oldest = min(post_detecting_states, key=lambda d: d.tracking_start)
-            return oldest.data
+            return post_detecting_states[0].data
         return None
