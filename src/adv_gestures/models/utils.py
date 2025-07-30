@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
+from math import isnan
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -261,3 +264,57 @@ class SwipeMode(str, Enum):
 
     HAND = "hand"  # Swipe detected by hand movement
     INDEX = "index"  # Swipe detected by index finger movement
+
+
+def _sanitize_float_values(obj: Any) -> Any:
+    """Recursively sanitize float values for JSON serialization.
+
+    Converts:
+    - NaN to None (which becomes null in JSON)
+    - Keeps inf and -inf as is (handled by string replacement later)
+    """
+    if isinstance(obj, float):
+        if isnan(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_float_values(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_float_values(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(_sanitize_float_values(item) for item in obj)
+    return obj
+
+
+class InfinityJSONEncoder(json.JSONEncoder):
+    """JSON encoder that converts infinity and NaN values.
+
+    This encoder converts:
+    - float('inf') to 1e9999
+    - float('-inf') to -1e9999
+    - float('nan') to null
+
+    This allows JSON serialization of data containing infinity and NaN values
+    while preserving their meaning when decoded in JavaScript.
+    """
+
+    def encode(self, o: Any) -> str:
+        """Encode an object, converting NaN to null and infinity values."""
+        # First sanitize NaN values
+        sanitized = _sanitize_float_values(o)
+        # Get the standard JSON encoding
+        result = super().encode(sanitized)
+        # Replace Infinity values in the JSON string
+        result = result.replace("Infinity", "1e9999")
+        result = result.replace("-Infinity", "-1e9999")
+        return result
+
+    def iterencode(self, o: Any, _one_shot: bool = False) -> Iterator[str]:
+        """Encode object iteratively, handling infinity and NaN values."""
+        # First sanitize NaN values
+        sanitized = _sanitize_float_values(o)
+        for chunk in super().iterencode(sanitized, _one_shot):
+            # Replace Infinity values in each chunk
+            chunk = chunk.replace("Infinity", "1e9999")
+            chunk = chunk.replace("-Infinity", "-1e9999")
+            yield chunk

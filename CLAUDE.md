@@ -13,14 +13,16 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - `make dev` - Install in development mode with all dev dependencies
 
 ### Code Quality (IMPORTANT: Run these before completing any task)
-- `make pretty lint` - Run ALL prettifiers et linters 
+- `make pretty lint` - Run ALL prettifiers and linters 
 
 ### Running the Application (Development/testing interface)
 - `adv-gestures` - Run gesture recognition (default command, requires camera access)
 - `adv-gestures --camera "name"` - Run gesture recognition with specific camera (or `--cam`)
 - `adv-gestures check-camera` - Check camera functionality without gesture recognition
 - `adv-gestures check-camera --camera "name"` - Check specific camera
-- Both commands support `--config`, `--mirror`, `--size` options
+- `adv-gestures playground` - Run web-based playground (requires `pip install "adv-gestures[playground]"`)
+- `adv-gestures playground --open` - Run playground and open browser
+- All commands support `--config`, `--mirror`, `--size` options where applicable
 - The app will prompt for camera selection if multiple cameras are available when --camera is not specified
 
 ### Cleaning
@@ -64,6 +66,10 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
    - `check_camera.py`: Camera checking and preview functionality
    - `tweak.py`: Configuration tweaking interface
    - `common.py`: Shared CLI utilities (camera selection, config loading)
+   - `playground/`: Web-based playground implementation
+     - `__init__.py`: Playground command entry point
+     - `server.py`: WebRTC and SSE server using aiohttp/aiortc
+     - `static/`: Pure JavaScript client (no build step)
    - Config file support via `--config` option
 
 6. **Configuration** (`src/adv_gestures/config.py`): Pydantic-based configuration
@@ -119,6 +125,18 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 
 4. **Linux-specific Features**: Camera handling is in `cameras.py` module
 
+5. **Playground Architecture**:
+   - Server-side: Stateless Python server using aiohttp + aiortc + aiohttp-sse
+   - Client-side: Pure JavaScript (no build/transpilation) with WebRTC + SSE
+   - Data flow: WebRTC for video upload, SSE for streaming `hands.to_dict()` snapshots
+   - Session management: UUID-based isolation for multi-user support
+   - No server-side business logic: all overlays and gesture interpretation done client-side
+   - **Snapshot Format**: The server sends `hands.to_dict()` output directly via SSE
+     - Points are objects with `x` and `y` properties (not tuples or arrays)
+     - Bounding boxes have `top_left` and `bottom_right` points, each with `x` and `y`
+     - Enums are sent as uppercase string names (e.g., finger names: `THUMB`, `INDEX`)
+     - See individual `to_dict()` methods for exact data structure
+
 ## Code Style Requirements
 
 - **Type Hints**: ALWAYS use type hints (project uses `mypy --strict`). Use `list` and not `List`. Same for `dict`, `set`, etc.
@@ -150,4 +168,14 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 
 ## Code Organization
 
-- A part des cas exceptionels pour resoudre des imports circulaires, ne jamais faire d'import dans les fonctions
+- Never import inside functions except in exceptional cases to resolve circular imports
+
+## Frontend JavaScript Best Practices
+
+- In JavaScript, always prefer classList for adding/removing classes rather than changing style attributes like "display" or others
+- For numeric values, always use CSS custom properties when possible
+
+## Documentation and Language
+
+- Everything in code, CLAUDE.md, and README.md must always be in English
+- If the user mentions "cloud" or "cloude", they are referring to the CLAUDE.md file

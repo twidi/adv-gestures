@@ -29,6 +29,13 @@ cd gestures
 make dev
 ```
 
+### Playground Installation (Optional)
+The web-based playground requires additional dependencies:
+```bash
+# Install with playground support
+pip install "adv-gestures[playground]"
+```
+
 ## Quick Start
 
 ### CLI Usage (Development/testing interface)
@@ -81,6 +88,30 @@ adv-gestures check-camera --config /path/to/config.json
 
 # The tool will prompt for camera selection if multiple cameras are available when --camera is not specified
 ```
+
+### Playground (Web Interface)
+The library includes a web-based playground for real-time gesture recognition:
+
+```bash
+# Start the playground server
+adv-gestures playground
+
+# Start and open in browser
+adv-gestures playground --open
+
+# Custom host and port
+adv-gestures playground --host 0.0.0.0 --port 8080
+```
+
+The playground provides:
+- Real-time hand tracking visualization
+- Camera selection interface
+- Mirror mode toggle (persisted)
+- Debug overlays for hand bounding boxes
+- Live gesture detection logs
+- WebRTC video streaming with SSE data channel
+
+Note: Playground dependencies must be installed separately with `pip install "adv-gestures[playground]"`
 
 ### Configuration File
 
@@ -268,7 +299,14 @@ adv-gestures/
 │   │   ├── check_camera.py  # Camera checking functionality
 │   │   ├── common.py    # Shared CLI utilities
 │   │   ├── run.py       # Main gesture recognition runner
-│   │   └── tweak.py     # Configuration tweaking interface
+│   │   ├── tweak.py     # Configuration tweaking interface
+│   │   └── playground/  # Playground web server
+│   │       ├── __init__.py  # Playground command
+│   │       ├── server.py    # WebRTC/SSE server
+│   │       └── static/      # Client-side files
+│   │           ├── index.html
+│   │           ├── main.js
+│   │           └── styles.css
 │   └── models/          # Data models
 │       ├── __init__.py  # Models package initialization
 │       ├── fingers.py   # Finger tracking
