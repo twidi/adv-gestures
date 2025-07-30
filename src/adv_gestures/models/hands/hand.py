@@ -1041,3 +1041,64 @@ class Hand(SmoothedBase):
             Dictionary of detected gestures with weight 1.0 for each
         """
         return self.gestures_detector.detect()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export hand data as a dictionary."""
+        main_direction = self.main_direction
+        bounding_box = self.bounding_box
+        oriented_bounding_box = self.oriented_bounding_box
+        pinch_box = self.pinch_box
+        bounding_box_direction_line_points = self.bounding_box_direction_line_points
+        frame_direction_line_points = self.frame_direction_line_points
+        other_hand_line_intersection_absolute = self.other_hand_line_intersection_absolute
+
+        return {
+            "handedness": self.handedness.name,
+            "is_visible": self.is_visible,
+            "palm": self.palm.to_dict() if self.palm else None,
+            "fingers": {finger.index.name: finger.to_dict() for finger in self.fingers},
+            "wrist_landmark": self.wrist_landmark.to_dict() if self.wrist_landmark else None,
+            "all_landmarks": [landmark.to_dict() for landmark in self.all_landmarks],
+            "is_facing_camera": self.is_facing_camera,
+            "is_showing_side": self.is_showing_side,
+            "main_direction": {"x": main_direction[0], "y": main_direction[1]} if main_direction else None,
+            "main_direction_angle": self.main_direction_angle,
+            "all_adjacent_fingers_touching": self.all_adjacent_fingers_touching,
+            "all_adjacent_fingers_except_thumb_touching": self.all_adjacent_fingers_except_thumb_touching,
+            "bounding_box": bounding_box.to_dict() if bounding_box else None,
+            "oriented_bounding_box": (
+                [{"x": point[0], "y": point[1]} for point in oriented_bounding_box] if oriented_bounding_box else None
+            ),
+            "pinch_box": pinch_box.to_dict() if pinch_box else None,
+            "default_gesture": self.default_gesture.name if self.default_gesture else None,
+            "default_gesture_duration": self.default_gesture_duration,
+            "custom_gestures": {gesture.name: weight for gesture, weight in self.custom_gestures.items()},
+            "gestures": {gesture.name: weight for gesture, weight in self.gestures.items()},
+            "gestures_durations": {gesture.name: duration for gesture, duration in self.gestures_durations.items()},
+            "gestures_data": {gesture.name: data for gesture, data in self.gestures_data.items()},
+            "thumb_index_spread_angle": self.thumb_index_spread_angle,
+            "thumb_index_touching": self.thumb_index_touching,
+            "index_middle_spread_angle": self.index_middle_spread_angle,
+            "index_middle_touching": self.index_middle_touching,
+            "middle_ring_spread_angle": self.middle_ring_spread_angle,
+            "middle_ring_touching": self.middle_ring_touching,
+            "ring_pinky_spread_angle": self.ring_pinky_spread_angle,
+            "ring_pinky_touching": self.ring_pinky_touching,
+            "bounding_box_direction_line_points": (
+                [{"x": point[0], "y": point[1]} for point in bounding_box_direction_line_points]
+                if bounding_box_direction_line_points
+                else None
+            ),
+            "frame_direction_line_points": (
+                [{"x": point[0], "y": point[1]} for point in frame_direction_line_points]
+                if frame_direction_line_points
+                else None
+            ),
+            "other_hand_line_intersection": self.other_hand_line_intersection,
+            "other_hand_line_intersection_normalized": self.other_hand_line_intersection_normalized,
+            "other_hand_line_intersection_absolute": (
+                {"x": other_hand_line_intersection_absolute[0], "y": other_hand_line_intersection_absolute[1]}
+                if other_hand_line_intersection_absolute
+                else None
+            ),
+        }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ...config import Config
 from ...smoothing import CoordSmoother, SmoothedBase, SmoothedProperty
@@ -47,3 +47,11 @@ class Palm(SmoothedBase):
         return centroid_x, centroid_y
 
     centroid = SmoothedProperty(_calc_centroid, CoordSmoother)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export palm data as a dictionary."""
+        centroid = self.centroid
+        return {
+            "landmarks": [landmark.to_dict() for landmark in self.landmarks],
+            "centroid": {"x": centroid[0], "y": centroid[1]} if centroid else {"x": 0.0, "y": 0.0},
+        }

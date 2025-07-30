@@ -320,6 +320,38 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
 
         return False
 
+    def to_dict(self) -> dict[str, Any]:
+        """Export finger data as a dictionary."""
+        centroid = self.centroid
+        start_point = self.start_point
+        end_point = self.end_point
+        straight_direction = self.straight_direction
+        tip_direction = self.tip_direction
+
+        return {
+            "type": self.index.name,
+            "landmarks": [landmark.to_dict() for landmark in self.landmarks],
+            "centroid": {"x": centroid[0], "y": centroid[1]} if centroid else {"x": 0.0, "y": 0.0},
+            "start_point": {"x": start_point[0], "y": start_point[1]} if start_point else None,
+            "end_point": {"x": end_point[0], "y": end_point[1]} if end_point else None,
+            "straightness_score": self.straightness_score,
+            "is_straight": self.is_straight,
+            "is_nearly_straight": self.is_nearly_straight,
+            "is_nearly_straight_or_straight": self.is_nearly_straight_or_straight,
+            "is_not_straight_at_all": self.is_not_straight_at_all,
+            "straight_direction": (
+                {"x": straight_direction[0], "y": straight_direction[1]} if straight_direction else None
+            ),
+            "straight_direction_angle": self.straight_direction_angle,
+            "tip_direction": {"x": tip_direction[0], "y": tip_direction[1]} if tip_direction else None,
+            "tip_direction_angle": self.tip_direction_angle,
+            "is_fully_bent": self.is_fully_bent,
+            "fold_angle": self.fold_angle,
+            "touching_adjacent_fingers": [
+                FingerIndex(finger_idx).name for finger_idx in self.touching_adjacent_fingers
+            ],
+        }
+
 
 class Thumb(Finger[ThumbConfig]):
     index = FingerIndex.THUMB
@@ -531,6 +563,12 @@ class OtherFinger(Finger[FingerConfig]):
         return distance < relative_threshold
 
     tip_on_thumb = smoothed_bool(_calc_tip_on_thumb)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export finger data as a dictionary, including tip_on_thumb."""
+        data = super().to_dict()
+        data["tip_on_thumb"] = self.tip_on_thumb
+        return data
 
 
 class IndexFinger(OtherFinger):

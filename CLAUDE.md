@@ -140,3 +140,14 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 
 - Do not use NumPy for mathematical operations that do not involve NumPy arrays
   - Use `degrees()`, `atan2()`, `acos()`, etc. from the `math` module instead of their NumPy counterparts
+
+## Data Export (to_dict methods)
+
+- All model classes have a `to_dict()` method that exports their data as a dictionary
+- **IMPORTANT**: When adding, removing, or changing the type of any property on classes with a `to_dict()` method, you MUST update the corresponding `to_dict()` method
+- To get all hand tracking data in a single call, use `hands.to_dict()` which returns a complete hierarchy of all hand, finger, landmark, and gesture data
+- All `to_dict()` methods must have return type `dict[str, Any]`
+
+## Code Organization
+
+- A part des cas exceptionels pour resoudre des imports circulaires, ne jamais faire d'import dans les fonctions

@@ -39,6 +39,12 @@ adv-gestures
 # Run without preview window
 adv-gestures --no-preview
 
+# Run with JSON output (outputs hands.to_dict() as JSON for each frame)
+adv-gestures --json
+
+# Run with JSON output and no preview (JSON only)
+adv-gestures --no-preview --json
+
 # Run with custom config file
 adv-gestures --config /path/to/config.json
 
@@ -56,7 +62,7 @@ adv-gestures --size 1920
 adv-gestures -s 800
 
 # Combine multiple options
-adv-gestures --camera "webcam" --mirror --size 1600
+adv-gestures --camera "webcam" --mirror --size 1600 --json
 
 # Check camera functionality without gesture recognition
 adv-gestures check-camera
@@ -177,6 +183,43 @@ The library supports detecting multiple gestures simultaneously. This is useful 
 - Weights indicate stability over time
 - Custom gestures are always detected regardless of default gesture detection
 - Two-hands gestures (like PRAY) require both hands to be detected
+
+## Data Export
+
+All tracking data can be easily exported as dictionaries for integration with other systems:
+
+```python
+# Get all hand tracking data in a single call
+data = hands.to_dict()
+
+# This returns a complete hierarchy including:
+# - Both hands (left/right) with visibility status
+# - All landmarks with pixel and normalized coordinates
+# - Finger positions, angles, and touch states
+# - Detected gestures with weights and durations
+# - Palm centroids and hand orientations
+# - Bounding boxes and directional information
+# - Stream information (dimensions, FPS)
+```
+
+The `to_dict()` method is available on all model classes (Hands, Hand, Finger, Palm, Landmark, etc.) and returns data suitable for JSON serialization.
+
+### JSON Output Mode
+
+You can use the `--json` flag with the CLI to output tracking data as JSON:
+
+```bash
+# Output JSON with preview window
+adv-gestures --json
+
+# Output JSON only (no preview, no other console output)
+adv-gestures --no-preview --json
+```
+
+This outputs one JSON object per frame, containing the complete hand tracking data from `hands.to_dict()`. This is useful for:
+- Piping data to other programs
+- Recording sessions for later analysis
+- Real-time integration with external systems
 
 ## Architecture
 

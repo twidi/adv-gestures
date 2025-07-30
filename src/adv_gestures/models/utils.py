@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -129,6 +129,13 @@ class Box:
 
         # Return just the points
         return unique_intersections[0][1], unique_intersections[1][1]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export box data as a dictionary."""
+        return {
+            "top_left": {"x": self.min_x, "y": self.min_y},
+            "bottom_right": {"x": self.max_x, "y": self.max_y},
+        }
 
 
 class HandsDirectionalRelationship(Enum):

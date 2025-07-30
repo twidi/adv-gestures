@@ -363,3 +363,20 @@ class Hands(SmoothedBase):
             return None
 
         return oriented_boxes_overlap(left_corners, right_corners)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export hands data as a dictionary."""
+        return {
+            "left": self.left.to_dict() if self.left else None,
+            "right": self.right.to_dict() if self.right else None,
+            "gestures": {gesture.name: weight for gesture, weight in self.gestures.items()},
+            "gestures_durations": {gesture.name: duration for gesture, duration in self.gestures_durations.items()},
+            "gestures_data": {gesture.name: data for gesture, data in self.gestures_data.items()},
+            "hands_distance": self.hands_distance,
+            "hands_are_close": self.hands_are_close,
+            "hands_direction_angle_diff": self.hands_direction_angle_diff,
+            "directional_relationship": self.directional_relationship.name if self.directional_relationship else None,
+            "bounding_boxes_overlap": self.bounding_boxes_overlap,
+            "oriented_bounding_boxes_overlap": self.oriented_bounding_boxes_overlap,
+            "stream_info": self.stream_info.to_dict() if self.stream_info else None,
+        }

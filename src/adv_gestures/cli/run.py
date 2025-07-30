@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from math import atan2, degrees
@@ -144,6 +145,7 @@ def run_gestures(
     config: Config,
     mirror: bool,
     desired_size: int,
+    json_output: bool = False,
 ) -> None:
     """Show a live preview of the selected camera with gesture recognition."""
 
@@ -166,12 +168,11 @@ def run_gestures(
                 print("Press 'q' or ESC to quit")
 
             for frame, stream_info, _ in recognizer.handle_opencv_capture(cap, hands):
+                if json_output:
+                    # Output JSON data
+                    print(json.dumps(hands.to_dict()))
                 if show_preview:
                     frame = draw_hands_marks_and_info(hands, stream_info, frame)
-                else:
-                    print_hands_info(hands, stream_info)
-
-                if show_preview:
                     cv2.imshow(cast(str, window_name), frame)
 
                     # Check for key press
@@ -186,6 +187,9 @@ def run_gestures(
                     except cv2.error:
                         # Window was closed
                         break
+                elif not json_output:
+                    # Only print normal info if not in JSON mode
+                    print_hands_info(hands, stream_info)
     except Exception as e:
         print(f"\nError loading gesture recognizer: {e}", file=sys.stderr)
         raise
@@ -205,6 +209,7 @@ def run_gestures_cmd(
     config_path: Path | None = typer.Option(  # noqa: B008
         None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output data as JSON format"),
 ) -> None:
     """Run gesture recognition on selected camera.
 
@@ -226,6 +231,13 @@ def run_gestures_cmd(
 
     if selected:
         print(f"\nSelected: {selected}")
-        run_gestures(selected, show_preview=preview, config=config, mirror=final_mirror, desired_size=final_size)
+        run_gestures(
+            selected,
+            show_preview=preview,
+            config=config,
+            mirror=final_mirror,
+            desired_size=final_size,
+            json_output=json_output,
+        )
     else:
         print("\nNo camera selected.")

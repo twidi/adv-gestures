@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import ClassVar, NamedTuple, TypeAlias
+from typing import Any, ClassVar, NamedTuple, TypeAlias
 
 from ..mediapipe import NormalizedLandmark
 
@@ -129,3 +129,15 @@ class Landmark(NamedTuple):
     def xy(self) -> tuple[int, int]:
         """Get the (x, y) coordinates as a tuple."""
         return self.x, self.y
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export landmark data as a dictionary."""
+        return {
+            "x": self.x,
+            "y": self.y,
+            "normalized": {
+                "x": self.x_normalized,
+                "y": self.y_normalized,
+                "z": self.z_normalized,
+            },
+        }

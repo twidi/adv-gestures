@@ -6,7 +6,7 @@ import time
 import urllib.request
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import ClassVar, NamedTuple, TypeAlias, TypeVar
+from typing import Any, ClassVar, NamedTuple, TypeAlias, TypeVar
 
 import cv2
 
@@ -197,6 +197,19 @@ class StreamInfo(NamedTuple):
     width: int  # Width of the image
     height: int  # Height of the image
     mirroring: bool = False  # Whether the recognition results are for a mirrored output
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export stream info as a dictionary with all fields."""
+        return {
+            "frames_count": self.frames_count,
+            "recognized_frames_count": self.recognized_frames_count,
+            "frames_fps": self.frames_fps,
+            "recognition_fps": self.recognition_fps,
+            "latency": self.latency,
+            "width": self.width,
+            "height": self.height,
+            "mirroring": self.mirroring,
+        }
 
 
 T = TypeVar("T")
