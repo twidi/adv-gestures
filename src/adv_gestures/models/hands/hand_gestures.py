@@ -84,7 +84,7 @@ class MiddleFingerDetector(HandGesturesDetector):
         detected: GestureWeights,
     ) -> bool:
         return (
-            middle.is_nearly_straight
+            middle.is_nearly_straight_or_straight
             and index.is_not_straight_at_all
             and ring.is_not_straight_at_all
             and pinky.is_not_straight_at_all
