@@ -66,14 +66,33 @@ body {
     transform: scaleX(-1);
 }
 
-#overlay {
+#canvas-container {
     position: absolute;
-    pointer-events: none;
     top: 0;
     left: 0;
+    width: 100%;
+    height: 100%;
 }
 
-#debug-overlay {
+.app-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: none;
+}
+
+.app-canvas.active {
+    display: block;
+}
+
+#app-icons {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: auto;
+}
+
+#overlay {
     position: absolute;
     pointer-events: none;
     top: 0;

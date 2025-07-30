@@ -1,3 +1,6 @@
+// Import application manager
+import { ApplicationManager } from './application-manager.js';
+
 // Generate UUID v4
 function generateUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -10,7 +13,6 @@ function generateUID() {
 // Local storage keys
 const STORAGE_KEYS = {
     MIRROR: 'adv-gestures-playground-mirror',
-    DEBUG: 'adv-gestures-playground-debug',
     CAMERA: 'adv-gestures-playground-camera'
 };
 
@@ -21,7 +23,6 @@ const MAX_LOGS = 100;
 const state = {
     uid: generateUID(),
     mirror: localStorage.getItem(STORAGE_KEYS.MIRROR) !== 'false', // Default true
-    debug: localStorage.getItem(STORAGE_KEYS.DEBUG) === 'true', // Default false
     selectedCamera: localStorage.getItem(STORAGE_KEYS.CAMERA) || null,
     stream: null,
     pc: null,
@@ -31,14 +32,14 @@ const state = {
         left: new Set(),
         right: new Set(),
         both: new Set()
-    }
+    },
+    appManager: null
 };
 
 // DOM elements
 const elements = {
     video: document.getElementById('video'),
-    overlay: document.getElementById('overlay'),
-    debugOverlay: document.getElementById('debug-overlay'),
+    canvasContainer: document.getElementById('canvas-container'),
     videoContainer: document.getElementById('video-container'),
     videoWrapper: document.querySelector('.video-wrapper'),
     connectionStatus: document.getElementById('connection-status'),
@@ -48,7 +49,6 @@ const elements = {
     cameraSelectBtn: document.getElementById('camera-select-btn'),
     cameraSwitchBtn: document.getElementById('camera-switch'),
     mirrorToggle: document.getElementById('mirror-toggle'),
-    debugToggle: document.getElementById('debug-toggle'),
     logsToggle: document.getElementById('logs-toggle'),
     logsPanel: document.getElementById('logs-panel'),
     logsContent: document.getElementById('logs-content'),
@@ -383,9 +383,10 @@ function processSnapshot(data) {
     // Check for gesture changes
     checkGestureChanges(data);
     
-    // Draw overlays if debug mode
-    if (state.debug) {
-        drawDebugOverlays(data);
+    // Pass data to application manager
+    if (state.appManager) {
+        state.appManager.update(data);
+        state.appManager.draw();
     }
 }
 
@@ -477,49 +478,12 @@ function updateCanvasSize() {
     document.body.style.setProperty('--video-width', `${displayWidth}px`);
     document.body.style.setProperty('--video-height', `${displayHeight}px`);
     
-    // Update canvases to match video exactly
-    elements.overlay.width = displayWidth;
-    elements.overlay.height = displayHeight;
-    elements.debugOverlay.width = displayWidth;
-    elements.debugOverlay.height = displayHeight;
+    // Update application canvases
+    if (state.appManager) {
+        state.appManager.resize(displayWidth, displayHeight);
+    }
 }
 
-// Draw debug overlays
-function drawDebugOverlays(data) {
-    const ctx = elements.debugOverlay.getContext('2d');
-    ctx.clearRect(0, 0, elements.debugOverlay.width, elements.debugOverlay.height);
-    
-    if (!state.streamInfo) return;
-    
-    // Calculate scale factors - canvas size matches video element size
-    const scaleX = elements.debugOverlay.width / state.streamInfo.width;
-    const scaleY = elements.debugOverlay.height / state.streamInfo.height;
-    
-    // Draw bounding boxes for each hand
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    
-    // Draw left hand bounding box
-    if (data.left && data.left.bounding_box) {
-        const { top_left, bottom_right } = data.left.bounding_box;
-        const displayX = top_left.x * scaleX;
-        const displayY = top_left.y * scaleY;
-        const displayWidth = (bottom_right.x - top_left.x) * scaleX;
-        const displayHeight = (bottom_right.y - top_left.y) * scaleY;
-        ctx.strokeRect(displayX, displayY, displayWidth, displayHeight);
-    }
-    
-    // Draw right hand bounding box
-    if (data.right && data.right.bounding_box) {
-        const { top_left, bottom_right } = data.right.bounding_box;
-        const displayX = top_left.x * scaleX;
-        const displayY = top_left.y * scaleY;
-        const displayWidth = (bottom_right.x - top_left.x) * scaleX;
-        const displayHeight = (bottom_right.y - top_left.y) * scaleY;
-        ctx.strokeRect(displayX, displayY, displayWidth, displayHeight);
-    }
-}
 
 // UI event handlers
 elements.mirrorToggle.addEventListener('click', () => {
@@ -531,24 +495,6 @@ elements.mirrorToggle.addEventListener('click', () => {
     window.location.reload();
 });
 
-elements.debugToggle.addEventListener('click', () => {
-    state.debug = !state.debug;
-    localStorage.setItem(STORAGE_KEYS.DEBUG, state.debug);
-    
-    elements.debugToggle.classList.toggle('active', state.debug);
-    elements.debugToggle.querySelector('.toggle-state').textContent = state.debug ? 'ON' : 'OFF';
-    
-    log('info', `Debug mode: ${state.debug ? 'ON' : 'OFF'}`);
-    
-    if (!state.debug) {
-        // Clear canvas when debug is turned off
-        const ctx = elements.debugOverlay.getContext('2d');
-        ctx.clearRect(0, 0, elements.debugOverlay.width, elements.debugOverlay.height);
-        elements.debugOverlay.classList.add('hidden');
-    } else {
-        elements.debugOverlay.classList.remove('hidden');
-    }
-});
 
 elements.cameraSwitchBtn.addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEYS.CAMERA);
@@ -572,9 +518,6 @@ document.addEventListener('keydown', (e) => {
         case 'M':
             elements.mirrorToggle.click();
             break;
-        case 'D':
-            elements.debugToggle.click();
-            break;
     }
 });
 
@@ -584,21 +527,15 @@ function updateUI() {
     elements.mirrorToggle.classList.toggle('active', state.mirror);
     elements.mirrorToggle.querySelector('.toggle-state').textContent = state.mirror ? 'ON' : 'OFF';
     elements.video.classList.toggle('mirrored', state.mirror);
-    
-    // Debug toggle
-    elements.debugToggle.classList.toggle('active', state.debug);
-    elements.debugToggle.querySelector('.toggle-state').textContent = state.debug ? 'ON' : 'OFF';
-    
-    // Hide debug overlay if debug is off
-    if (!state.debug) {
-        elements.debugOverlay.classList.add('hidden');
-    }
 }
 
 // Main initialization
 async function init() {
     try {
         updateUI();
+        
+        // Initialize application manager
+        state.appManager = new ApplicationManager(elements.canvasContainer);
         
         // Setup camera
         const stream = await setupCamera();
@@ -607,7 +544,13 @@ async function init() {
         // Update canvas size when video metadata is loaded
         elements.video.addEventListener('loadedmetadata', () => {
             // Force a reflow to ensure video dimensions are calculated
-            setTimeout(updateCanvasSize, 100);
+            setTimeout(() => {
+                updateCanvasSize();
+                // Create application canvases after we know the size
+                const displayWidth = parseFloat(document.body.style.getPropertyValue('--video-width')) || 640;
+                const displayHeight = parseFloat(document.body.style.getPropertyValue('--video-height')) || 480;
+                state.appManager.createCanvases(displayWidth, displayHeight);
+            }, 100);
         });
         
         // Update canvas size when video actually starts playing

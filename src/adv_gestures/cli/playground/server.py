@@ -26,6 +26,9 @@ from ...recognizer import Recognizer
 logger = logging.getLogger("adv_gestures.playground")
 logger.setLevel(logging.INFO)
 
+# Static files directory
+STATIC_DIR = Path(__file__).parent / "static"
+
 # Configure handler if logger doesn't have one
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -104,48 +107,39 @@ class Session:
 sessions: dict[str, Session] = {}
 
 
-async def index(request: web.Request) -> web.Response:
+async def index(request: web.Request) -> web.FileResponse:
     """Serve the main HTML page."""
-    static_dir = Path(__file__).parent / "static"
-    index_file = static_dir / "index.html"
+    index_file = STATIC_DIR / "index.html"
 
-    if not index_file.exists():
-        return web.Response(text="index.html not found", status=404)
-
-    content = index_file.read_text()
-    return web.Response(
-        text=content,
-        content_type="text/html",
+    return web.FileResponse(
+        index_file,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
     )
 
 
-async def serve_static(request: web.Request) -> web.Response:
-    """Serve static files (JS, CSS)."""
-    static_dir = Path(__file__).parent / "static"
+async def serve_static(request: web.Request) -> web.FileResponse:
+    """Serve static files with no-cache headers."""
     filename = request.match_info["filename"]
 
     # Security: prevent directory traversal
-    if ".." in filename or "/" in filename:
-        return web.Response(status=404)
+    if ".." in filename or filename.startswith("/"):
+        raise web.HTTPNotFound()
 
-    file_path = static_dir / filename
+    file_path = STATIC_DIR / filename
+
+    # Resolve to absolute path and ensure it's within STATIC_DIR
+    try:
+        file_path = file_path.resolve()
+        file_path.relative_to(STATIC_DIR.resolve())
+    except (ValueError, RuntimeError):
+        # Path is outside STATIC_DIR
+        raise web.HTTPNotFound() from None
 
     if not file_path.exists() or not file_path.is_file():
-        return web.Response(status=404)
+        raise web.HTTPNotFound()
 
-    content = file_path.read_text()
-
-    # Determine content type
-    content_type = "text/plain"
-    if filename.endswith(".js"):
-        content_type = "application/javascript"
-    elif filename.endswith(".css"):
-        content_type = "text/css"
-
-    return web.Response(
-        text=content,
-        content_type=content_type,
+    return web.FileResponse(
+        file_path,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
     )
 
@@ -370,7 +364,7 @@ def create_app() -> web.Application:
     # Routes
     app.router.add_get("/", index)
     app.router.add_get("/healthz", healthz)
-    app.router.add_get("/{filename}", serve_static)
+    app.router.add_get("/static/{filename:.+}", serve_static)
     app.router.add_post("/webrtc/offer", webrtc_offer)
     app.router.add_get("/sse", sse_handler)
 

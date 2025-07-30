@@ -1,0 +1,164 @@
+// Drawing style constants
+export const DrawingStyles = {
+    // Colors from CSS variables
+    colors: {
+        accent: '#00ffff',
+        textPrimary: '#001616',
+        textSecondary: '#003333',
+        textTitle: '#000808',
+        bgOverlay: 'rgba(0, 255, 255, 0.1)',
+        border: '#00ffff',
+    },
+    
+    // Common measurements
+    metrics: {
+        borderRadius: 10,
+        borderWidth: 1,
+        borderWidthActive: 3,
+        iconSize: 48,
+        iconSpacing: 8,
+        glowRadius: 10,
+        glowOpacity: 0.3
+    }
+};
+
+// Drawing primitives
+export class DrawingPrimitives {
+    /**
+     * Draw an icon container (like the control buttons)
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {number} size - Size of the container
+     * @param {boolean} isActive - Whether the container is active
+     * @param {boolean} isHovered - Whether the container is hovered
+     * @param {number} borderWidth - Border width (optional)
+     */
+    static drawIconContainer(ctx, x, y, size, isActive = false, isHovered = false, borderWidth = null) {
+        const styles = DrawingStyles;
+        const actualBorderWidth = borderWidth || (isActive ? styles.metrics.borderWidthActive : styles.metrics.borderWidth);
+        
+        ctx.save();
+        
+        // Background with rounded corners
+        ctx.fillStyle = styles.colors.bgOverlay;
+        this.roundedRect(ctx, x, y, size, size, styles.metrics.borderRadius);
+        ctx.fill();
+        
+        // Add subtle inner glow for depth
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.lineWidth = 1;
+        this.roundedRect(ctx, x + 1, y + 1, size - 2, size - 2, styles.metrics.borderRadius - 1);
+        ctx.stroke();
+        
+        // Border
+        ctx.strokeStyle = styles.colors.accent;
+        ctx.lineWidth = actualBorderWidth;
+        this.roundedRect(ctx, x, y, size, size, styles.metrics.borderRadius);
+        ctx.stroke();
+        
+        // Glow effect when active
+        if (isActive) {
+            ctx.shadowColor = styles.colors.accent;
+            ctx.shadowBlur = styles.metrics.glowRadius;
+            ctx.globalAlpha = styles.metrics.glowOpacity;
+            this.roundedRect(ctx, x, y, size, size, styles.metrics.borderRadius);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+        
+        ctx.restore();
+    }
+    
+    /**
+     * Draw a rounded rectangle
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {number} width - Width
+     * @param {number} height - Height
+     * @param {number} radius - Corner radius
+     */
+    static roundedRect(ctx, x, y, width, height, radius) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.restore();
+    }
+    
+    /**
+     * Draw text with proper styling
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {string} text - Text to draw
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {string} size - Font size (e.g., '14px', 'bold 16px')
+     * @param {string} color - Text color
+     * @param {string} align - Text alignment
+     * @param {string} baseline - Text baseline
+     */
+    static drawText(ctx, text, x, y, size = '14px', color = null, align = 'left', baseline = 'alphabetic') {
+        ctx.save();
+        ctx.font = `${size} monospace`;
+        ctx.fillStyle = color || DrawingStyles.colors.textPrimary;
+        ctx.textAlign = align;
+        ctx.textBaseline = baseline;
+        ctx.fillText(text, x, y);
+        ctx.restore();
+    }
+    
+    /**
+     * Draw a label (small text) like the ON/OFF states
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {string} text - Text to draw
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {boolean} isActive - Whether the label is active
+     */
+    static drawLabel(ctx, text, x, y, isActive = false) {
+        const color = isActive ? DrawingStyles.colors.accent : DrawingStyles.colors.textSecondary;
+        this.drawText(ctx, text, x, y, 'bold 9px', color, 'center', 'middle');
+    }
+    
+    /**
+     * Draw an info panel background
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @param {number} width - Width
+     * @param {number} height - Height
+     */
+    static drawInfoPanel(ctx, x, y, width, height) {
+        ctx.save();
+        ctx.fillStyle = DrawingStyles.colors.bgOverlay;
+        this.roundedRect(ctx, x, y, width, height, DrawingStyles.metrics.borderRadius);
+        ctx.fill();
+        
+        ctx.strokeStyle = DrawingStyles.colors.border;
+        ctx.lineWidth = DrawingStyles.metrics.borderWidth;
+        this.roundedRect(ctx, x, y, width, height, DrawingStyles.metrics.borderRadius);
+        ctx.stroke();
+        ctx.restore();
+    }
+    
+    /**
+     * Clear the entire canvas
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     */
+    static clearCanvas(ctx) {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
+}
+
+// Export alias for shorter usage
+export { DrawingPrimitives as DP };

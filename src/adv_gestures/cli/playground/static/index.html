@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gesture Recognition Playground</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <div id="main-container">
@@ -12,8 +12,10 @@
         <div id="video-container">
             <div class="video-wrapper">
                 <video id="video" autoplay playsinline muted></video>
-                <canvas id="overlay"></canvas>
-                <canvas id="debug-overlay"></canvas>
+                <div id="canvas-container">
+                    <!-- App canvases will be created here dynamically -->
+                </div>
+                <canvas id="app-icons"></canvas>
             </div>
             
             <!-- Connection status -->
@@ -46,13 +48,6 @@
                 <span class="toggle-state">ON</span>
             </button>
             
-            <button id="debug-toggle" class="control-btn" title="Debug (D)">
-                <svg viewBox="0 0 24 24" width="20" height="20">
-                    <path d="M22 9V7h-2V5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2V9h2zm-4 10H4V5h14v14z"/>
-                </svg>
-                <span class="toggle-state">OFF</span>
-            </button>
-            
             <button id="camera-switch" class="control-btn hidden" title="Switch Camera">
                 <svg viewBox="0 0 24 24" width="20" height="20">
                     <path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12z"/>
@@ -80,6 +75,6 @@
         </div>
     </div>
     
-    <script type="module" src="main.js"></script>
+    <script type="module" src="/static/main.js"></script>
 </body>
 </html>
