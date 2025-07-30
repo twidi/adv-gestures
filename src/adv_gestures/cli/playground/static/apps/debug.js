@@ -9,7 +9,7 @@ export class DebugApplication extends BaseApplication {
     drawIconContent(ctx, size, isActive) {
         // Draw a D for Debug
         const color = DrawingStyles.colors.accent;
-        DP.drawText(ctx, 'D', size/2, size/2, `bold ${size * 0.6}px`, color, 'center', 'middle');
+        DP.drawText(ctx, 'D', size/2, size/2 + 2, `bold ${size * 0.6}px`, color, 'center', 'middle');
     }
 
     draw() {

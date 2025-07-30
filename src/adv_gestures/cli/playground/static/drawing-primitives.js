@@ -6,7 +6,8 @@ export const DrawingStyles = {
         textPrimary: '#001616',
         textSecondary: '#003333',
         textTitle: '#000808',
-        bgOverlay: 'rgba(0, 255, 255, 0.1)',
+        bgOverlay: 'rgba(110,234,234,0.5)',
+        bgIcon: 'rgba(0, 0, 0, 0.3)',
         border: '#00ffff',
     },
     
@@ -41,7 +42,7 @@ export class DrawingPrimitives {
         ctx.save();
         
         // Background with rounded corners
-        ctx.fillStyle = styles.colors.bgOverlay;
+        ctx.fillStyle = styles.colors.bgIcon;
         this.roundedRect(ctx, x, y, size, size, styles.metrics.borderRadius);
         ctx.fill();
         

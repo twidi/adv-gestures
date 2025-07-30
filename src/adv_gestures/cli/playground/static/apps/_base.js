@@ -9,8 +9,9 @@ export class BaseApplication {
         this.width = 0;
         this.height = 0;
         this.showCursors = true;
+        this.streamSize = null; // Will be {width, height} when stream info is available
         this.handsData = null;
-        this.scale = null; // Will be {x, y} when stream info is available
+        this.scale = null; // Will be {x, y} when stream info and canvas are available
     }
 
     createCanvas(width, height) {
@@ -22,8 +23,22 @@ export class BaseApplication {
         this.ctx = this.canvas.getContext('2d');
         this.width = width;
         this.height = height;
-        
+        this.updateScale();
+
         document.getElementById('canvas-container').appendChild(this.canvas);
+    }
+
+    setStreamSize(streamSize) {
+        this.streamSize = streamSize;
+        this.updateScale();
+    }
+
+    updateScale() {
+        if (!this.width || !this.height || !this.streamSize) return;
+        this.scale = {
+            x: this.width / this.streamSize.width,
+            y: this.height / this.streamSize.height
+        }
     }
 
     resize(width, height) {
@@ -32,13 +47,8 @@ export class BaseApplication {
             this.canvas.height = height;
             this.width = width;
             this.height = height;
-            if (this.handsData?.stream_info) {
-                this.scale = {
-                    x: this.width / this.handsData.stream_info.width,
-                    y: this.height / this.handsData.stream_info.height
-                }
-            }
         }
+        this.updateScale();
     }
 
     activate() {
@@ -80,15 +90,7 @@ export class BaseApplication {
     update(handsData) {
         // Store handsData for future use
         this.handsData = handsData;
-        
-        // Update scale if stream info is available
-        if (!this.scale && handsData?.stream_info) {
-            this.scale = {
-                x: this.width / handsData.stream_info.width,
-                y: this.height / handsData.stream_info.height
-            };
-        }
-        
+
         // Override in subclasses if needed for additional functionality
     }
 
@@ -117,6 +119,7 @@ export class BaseApplication {
             y: point.y * this.scale.y
         };
     }
+
 
     drawCursors() {
         // Only draw if showCursors is true and we have context and hands data

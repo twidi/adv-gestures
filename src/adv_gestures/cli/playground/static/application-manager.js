@@ -10,14 +10,16 @@ export class ApplicationManager {
         this.iconSize = DrawingStyles.metrics.iconSize;
         this.iconSpacing = DrawingStyles.metrics.iconSpacing;
         this.canvasContainer = canvasContainer;
-        
+
+        this.streamSize = null; // Will be set when stream info is available
+
         // Get existing icon canvas from HTML
         this.iconCanvas = document.getElementById('app-icons');
         this.iconCtx = this.iconCanvas.getContext('2d');
         
         // Add click handler for icon selection
         this.iconCanvas.addEventListener('click', (e) => this.handleIconClick(e));
-        
+
         // Register all applications
         this.registerApplications();
     }
@@ -94,6 +96,13 @@ export class ApplicationManager {
     }
 
     update(handsData) {
+        if (handsData.stream_info && (!this.streamSize || this.streamSize.width !== handsData.stream_info.width || this.streamSize.height !== handsData.stream_info.height)) {
+            // Update stream size if it has changed
+            this.streamSize = {width: handsData.stream_info.width, height: handsData.stream_info.height};
+            for (const app of this.applications.values()) {
+                app.setStreamSize(this.streamSize);
+            }
+        }
         // Update only the active app
         if (this.activeApp) {
             this.activeApp.update(handsData);
