@@ -13,7 +13,6 @@ from .base_gestures import (
     BaseGestureDetector,
     DetectionState,
     Range,
-    StatefulMode,
 )
 
 if TYPE_CHECKING:
@@ -327,7 +326,7 @@ class GunDetector(FingerGunDetector):
 
 class AirTapDetector(HandGesturesDetector):
     gesture = Gestures.AIR_TAP
-    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_mode = True
     post_detection_duration = 0.5  # Report tap for 0.5s after movement
 
     def __init__(self, obj: Hand) -> None:
@@ -336,7 +335,7 @@ class AirTapDetector(HandGesturesDetector):
         self.min_gesture_duration: float = self.config.min_duration
         self.max_gesture_duration: float = self.config.max_duration
         self.movement_threshold: float = self.config.movement_threshold
-        self._last_removed_tip_position: tuple[float, float] | None = None
+        self._last_removed_tip: tuple[float, tuple[float, float]] | None = None
 
     def _calc_is_tip_stable(self) -> bool:
         """Check if the index tip has been stable for the configured duration."""
@@ -413,7 +412,7 @@ class AirTapDetector(HandGesturesDetector):
         now = time()
         for detection in self.tracking_detections:
             if self._stateful_is_expired(detection, now):
-                self._last_removed_tip_position = detection.data["tap_position"]  # type: ignore[index]  # data defined in _stateful_start_tracking
+                self._last_removed_tip = (now, detection.data["tap_position"])  # type: ignore[index]  # data defined in _stateful_start_tracking
                 break
 
         # Effectively update detections
@@ -424,23 +423,28 @@ class AirTapDetector(HandGesturesDetector):
             tap_position = self.index.end_point
             for detection in self.tracking_detections:
                 # Only update TRACKING, because POST_DETECTING states keep their last position
-                detection.data["tap_position"] = tap_position  # type: ignore[index]  # data defined in _stateful_start_tracking
+                median_position = self.index.get_tip_median_position(detection.tracking_start)
+                detection.data["tap_position"] = median_position  # type: ignore[index]  # data defined in _stateful_start_tracking
                 break
 
     def _stateful_can_start_tracking(self) -> bool:
         """Don't start new tracking if we removed one at same position due to max duration."""
-        if self._last_removed_tip_position is None:
+        if self._last_removed_tip is None:
+            return True
+
+        # Check if last removed tip position is old enough to allow new tracking at the same position
+        now = time()
+        if self._last_removed_tip[0] is not None and now - self._last_removed_tip[0] > 1:
+            self._last_removed_tip = None
             return True
 
         # Check if tip has moved from the last removed position
         if not self.index.landmarks:
-            # No current position, allow tracking
-            # self._last_removed_tip_position = None
             return True
 
         tip = self.index.landmarks[-1]
         current_x, current_y = tip.x, tip.y
-        last_x, last_y = self._last_removed_tip_position
+        last_x, last_y = self._last_removed_tip[1]
 
         # Calculate movement distance (in normalized coordinates)
         dx = current_x - last_x
@@ -454,7 +458,7 @@ class AirTapDetector(HandGesturesDetector):
             return False
 
         # Finger moved, allow new tracking and reset
-        self._last_removed_tip_position = None
+        self._last_removed_tip = None
         return True
 
     def get_data(self) -> dict[str, Any] | None:
@@ -583,7 +587,7 @@ class NoDetector(HandGesturesDetector):
 
 class SnapDetector(HandGesturesDetector):
     gesture = Gestures.SNAP
-    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_mode = True
     post_detection_duration = 0.3  # Report snap for 0.3s after detection
     max_transition_time = 0.5  # 500ms max between before and after states
 
@@ -651,7 +655,7 @@ class SwipeDetector(HandGesturesDetector):
     """Unified swipe detector that detects swipes in any direction by hand or index finger."""
 
     gesture = Gestures.SWIPE
-    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_mode = True
     post_detection_duration = 0.5  # Report swipe for 0.5s after detection
 
     def __init__(self, hand: Hand):

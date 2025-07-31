@@ -17,11 +17,6 @@ if TYPE_CHECKING:
 Range: TypeAlias = tuple[float | None, float | None]
 
 
-class StatefulMode(enum.Enum):
-    POST_DETECTION = "post_detection"  # Send detection after gesture ends (e.g., CLAP)
-    CONTINUOUS = "continuous"  # Send detection during gesture (e.g., WAVE)
-
-
 def direction_matches(angle: float | None, range_: Range | None) -> bool:
     if range_ is None:
         return True
@@ -89,7 +84,7 @@ class BaseGestureDetector(Generic[WithGesturesType]):
 
     # To be defined for each final subclass
     gesture: ClassVar[Gestures]
-    stateful_mode: ClassVar[StatefulMode | None] = None  # None = stateless detection
+    post_detection_mode: bool = False
     # Only for stateful detectors
     min_gesture_duration: float | None = None
     max_gesture_duration: float | None = None
@@ -167,10 +162,10 @@ class BaseGestureDetector(Generic[WithGesturesType]):
         assert detected is not None, "Detected must be provided for final detectors."
 
         if not self.obj.is_gesture_disabled(self.gesture) and self.pre_matches(detected):
-            if self.stateful_mode is None:
-                self.detect_stateless(detected)
-            else:
+            if self.post_detection_mode:
                 self.detect_stateful(detected)
+            else:
+                self.detect_stateless(detected)
 
         return detected
 
@@ -214,25 +209,15 @@ class BaseGestureDetector(Generic[WithGesturesType]):
             duration = now - detection.tracking_start
 
             if detection.state == StatefulDetectionState.TRACKING:
-                if self.stateful_mode == StatefulMode.CONTINUOUS:
-                    # For CONTINUOUS: move to ACTIVE after min_duration while gesture continues
-                    if gesture_found and self.min_gesture_duration and duration >= self.min_gesture_duration:
-                        detection.state = StatefulDetectionState.ACTIVE
-                    elif not gesture_found:
-                        # Gesture ended, remove detection
+                # Move to POST_DETECTING when gesture ends
+                if not gesture_found:
+                    if self.min_gesture_duration is not None and duration < self.min_gesture_duration:
+                        # Too short, remove this detection
                         self.tracked_states.remove(detection)
-
-                elif self.stateful_mode == StatefulMode.POST_DETECTION:
-                    # For POST_DETECTION: move to POST_DETECTING when gesture ends
-                    if not gesture_found:
-                        if self.min_gesture_duration is not None and duration < self.min_gesture_duration:
-                            # Too short, remove this detection
-                            self.tracked_states.remove(detection)
-                        else:
-                            # Valid - move to post-detecting
-                            detection.state = StatefulDetectionState.POST_DETECTING
-                            detection.post_detection_start = now
-                            self._last_valid_detection_time = now
+                    else:
+                        # Valid - move to post-detecting
+                        self._stateful_mark_post_detecting(detection, now)
+                        self._last_valid_detection_time = now
 
             elif detection.state == StatefulDetectionState.ACTIVE:
                 # CONTINUOUS mode: continue while gesture is detected
@@ -257,11 +242,7 @@ class BaseGestureDetector(Generic[WithGesturesType]):
         return detection
 
     def _stateful_has_valid_detection(self) -> bool:
-        if self.stateful_mode == StatefulMode.POST_DETECTION:
-            return any(d.state == StatefulDetectionState.POST_DETECTING for d in self.tracked_states)
-        elif self.stateful_mode == StatefulMode.CONTINUOUS:
-            return any(d.state == StatefulDetectionState.ACTIVE for d in self.tracked_states)
-        return False
+        return any(d.state == StatefulDetectionState.POST_DETECTING for d in self.tracked_states)
 
     def _stateful_can_start_new_detection(self) -> bool:
         if self.min_interval_between_detections is None:
@@ -273,6 +254,11 @@ class BaseGestureDetector(Generic[WithGesturesType]):
     def _stateful_can_start_tracking(self) -> bool:
         """Check if a new tracking state can be started. Override for custom logic."""
         return True
+
+    def _stateful_mark_post_detecting(self, detection: DetectionState, now: float) -> None:
+        """Mark the detection as post-detecting. Override for custom logic."""
+        detection.state = StatefulDetectionState.POST_DETECTING
+        detection.post_detection_start = now
 
     @property
     def tracking_detections(self) -> list[DetectionState]:

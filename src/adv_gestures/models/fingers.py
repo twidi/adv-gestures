@@ -610,6 +610,39 @@ class IndexFinger(OtherFinger):
             while self._direction_history and self._direction_history[0][0] < cutoff_time:
                 self._direction_history.popleft()
 
+    def get_tip_median_position(self, since: float) -> tuple[float, float] | None:
+        """Calculate the median position of the index tip since the given timestamp.
+
+        Args:
+            since: Timestamp to start calculating from
+
+        Returns:
+            Tuple of (median_x, median_y) or None if no positions available
+        """
+        # Get positions from the history that occurred since the given timestamp
+        positions_since = [(x, y) for t, x, y in self._tip_position_history if t >= since]
+
+        if not positions_since:
+            return None
+
+        # Calculate median x and y separately
+        x_values = [x for x, y in positions_since]
+        y_values = [y for x, y in positions_since]
+
+        # Sort and find median
+        x_values.sort()
+        y_values.sort()
+
+        n = len(x_values)
+        if n % 2 == 0:
+            median_x = (x_values[n // 2 - 1] + x_values[n // 2]) / 2
+            median_y = (y_values[n // 2 - 1] + y_values[n // 2]) / 2
+        else:
+            median_x = x_values[n // 2]
+            median_y = y_values[n // 2]
+
+        return (median_x, median_y)
+
     def detect_direction_changes(
         self,
         duration_window: float = 1.0,

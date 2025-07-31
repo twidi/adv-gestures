@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 from ...gestures import TWO_HANDS_GESTURES, Gestures
 from ...smoothing import GestureWeights
 from ..utils import HandsDirectionalRelationship
-from .base_gestures import BaseGestureDetector, Range, StatefulMode, direction_matches
+from .base_gestures import BaseGestureDetector, Range, direction_matches
 
 if TYPE_CHECKING:
     from .hand import Hand
@@ -96,7 +96,7 @@ class ClapDetector(TwoHandsGesturesDetector):
         HandsDirectionalRelationship.CONVERGING_OUTSIDE_FRAME,
     }
 
-    stateful_mode = StatefulMode.POST_DETECTION
+    post_detection_mode = True
     min_gesture_duration = 0.05  # Min duration for valid clap
     max_gesture_duration = 0.5  # Max duration for hands to be joined
     post_detection_duration = 0.2  # Show clap duration after separation
