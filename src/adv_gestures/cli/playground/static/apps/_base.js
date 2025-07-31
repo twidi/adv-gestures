@@ -137,13 +137,42 @@ export class BaseApplication {
             
             // Check if index finger is straight or nearly straight
             if (!indexFinger.is_fully_bent) {
-                const tip = indexFinger.end_point;
-                if (!tip) continue;
 
-                // Scale the tip coordinates
-                const scaledTip = this.scalePoint(tip);
-                const x = scaledTip.x;
-                const y = scaledTip.y;
+                let x, y;
+
+                // Draw AIR_TAP progress indicator if preAirTapData exists
+                if (this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness]) {
+                    const tapData = this.handsData.preAirTapData[hand.handedness];
+                    const duration = tapData.duration || 0;
+                    const maxDuration = tapData.maxDuration || 1;
+                    const progress = Math.min(duration / maxDuration, 1);
+                    const position = this.scalePoint(tapData.tapPosition);
+
+                    // Only draw if there's some progress
+                    if (progress > 0) {
+                        DP.drawProgressArc(
+                            ctx,
+                            position.x,
+                            position.y,
+                            cursorRadius + 5,
+                            progress,
+                            { color: cursorColor }
+                        );
+                    }
+
+                    // If preAirTap, we use this to draw the cursor position
+                    x = position.x;
+                    y = position.y;
+
+                } else {
+                    if (!indexFinger.landmarks || indexFinger.landmarks.length < 4) continue;
+                    const tip = indexFinger.landmarks[3];
+                    if (!tip) continue;
+                    // Scale the tip coordinates
+                    const scaledTip = this.scalePoint(tip);
+                    x = scaledTip.x;
+                    y = scaledTip.y;
+                }
 
                 // Draw cursor circle
                 ctx.save();
@@ -161,25 +190,6 @@ export class BaseApplication {
                 
                 ctx.restore();
 
-                // Draw AIR_TAP progress indicator if preAirTapData exists
-                if (this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness]) {
-                    const airTapInfo = this.handsData.preAirTapData[hand.handedness];
-                    const duration = airTapInfo.duration || 0;
-                    const maxDuration = airTapInfo.maxDuration || 1;
-                    const progress = Math.min(duration / maxDuration, 1);
-                    
-                    // Only draw if there's some progress
-                    if (progress > 0) {
-                        DP.drawProgressArc(
-                            ctx,
-                            x,
-                            y,
-                            cursorRadius + 5,
-                            progress,
-                            { color: cursorColor }
-                        );
-                    }
-                }
             }
         }
 
