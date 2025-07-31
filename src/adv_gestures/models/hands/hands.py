@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 class Hands(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
+        "stream_info",
         "gestures",
         "gestures_durations",
         "gestures_data",
@@ -41,7 +42,7 @@ class Hands(SmoothedBase):
         """Initialize both hands."""
         super().__init__()
         self.config = config
-        self.stream_info: StreamInfo | None = None
+        self._stream_info: StreamInfo | None = None
         self.left: Hand = Hand(handedness=Handedness.LEFT, hands=self, config=config)
         self.right: Hand = Hand(handedness=Handedness.RIGHT, hands=self, config=config)
 
@@ -50,6 +51,12 @@ class Hands(SmoothedBase):
         self._last_gestures: set[Gestures] = set()
 
         self.gestures_detector = TwoHandsGesturesDetector(self)
+
+    @cached_property
+    def stream_info(self) -> StreamInfo:
+        if self._stream_info is None:
+            raise ValueError("Stream info is not set. Please update the hands with new data first.")
+        return self._stream_info
 
     def reset(self) -> None:
         """Reset both hands and clear all cached properties."""
@@ -63,10 +70,10 @@ class Hands(SmoothedBase):
         for prop in self._cached_props:
             self.__dict__.pop(prop, None)
 
-    def update_hands(self, recognizer: Recognizer, stream_info: StreamInfo | None = None) -> None:
+    def update_hands(self, recognizer: Recognizer, stream_info: StreamInfo) -> None:
         """Update the hands object with new gesture recognition results."""
         # Store the stream info
-        self.stream_info = stream_info
+        self._stream_info = stream_info
 
         # If the recognizer didn't run yet, do nothing
         if not (result := recognizer.last_result):
@@ -378,5 +385,5 @@ class Hands(SmoothedBase):
             "directional_relationship": self.directional_relationship.name if self.directional_relationship else None,
             "bounding_boxes_overlap": self.bounding_boxes_overlap,
             "oriented_bounding_boxes_overlap": self.oriented_bounding_boxes_overlap,
-            "stream_info": self.stream_info.to_dict() if self.stream_info else None,
+            "stream_info": self.stream_info.to_dict(),
         }

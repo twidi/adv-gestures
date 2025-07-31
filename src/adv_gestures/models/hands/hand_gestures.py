@@ -335,48 +335,30 @@ class AirTapDetector(HandGesturesDetector):
         self.min_gesture_duration: float = self.config.min_duration
         self.max_gesture_duration: float = self.config.max_duration
         self.movement_threshold: float = self.config.movement_threshold
+        self.tap_movement_threshold: float = self.config.tap_movement_threshold
         self._last_removed_tip: tuple[float, tuple[float, float]] | None = None
 
-    def _calc_is_tip_stable(self) -> bool:
-        """Check if the index tip has been stable for the configured duration."""
-        if not self.index._tip_position_history:
+    def get_movement_amplitude(self, since: float) -> float | None:
+        median_position = self.index.get_tip_median_position(since)
+        if median_position is None:
             return False
 
-        current_time = time()
-        duration = self.min_gesture_duration
-
-        # Find positions within the duration window
-        cutoff_time = current_time - duration
-        positions_in_window = [(t, x, y) for t, x, y in self.index._tip_position_history if t >= cutoff_time]
-
-        if not positions_in_window or len(positions_in_window) < 2:
+        # Get current tip position
+        if not self.index.landmarks:
             return False
 
-        # Check if we have data covering the full duration
-        if current_time - positions_in_window[0][0] < duration * 0.9:  # 90% of duration
-            return False
+        tip = self.index.landmarks[-1]
+        current_x, current_y = tip.x, tip.y
+        median_x, median_y = median_position
 
-        # Calculate maximum movement in the window
-        max_movement = 0.0
-        first_x, first_y = positions_in_window[0][1], positions_in_window[0][2]
+        # Calculate distance from median to current position
+        dx = current_x - median_x
+        dy = current_y - median_y
+        distance = sqrt(dx**2 + dy**2)
 
-        for _, x, y in positions_in_window:
-            dx = x - first_x
-            dy = y - first_y
-            movement = sqrt(dx**2 + dy**2)
-            max_movement = max(max_movement, movement)
-
-        # Normalize max_movement from pixels to normalized coordinates
-        # We need the frame dimensions from the hand's stream_info
-        normalized_movement = max_movement
-        if self.hand.stream_info:
-            # Calculate diagonal to normalize the movement
-            diagonal = sqrt(self.hand.stream_info.width**2 + self.hand.stream_info.height**2)
-            normalized_movement = max_movement / diagonal
-
-        return normalized_movement < self.movement_threshold
-
-    is_tip_stable = smoothed_bool(_calc_is_tip_stable)
+        # Normalize the distance
+        diagonal = sqrt(self.hand.stream_info.width**2 + self.hand.stream_info.height**2)
+        return distance / diagonal
 
     def matches(
         self,
@@ -389,19 +371,42 @@ class AirTapDetector(HandGesturesDetector):
         detected: GestureWeights,
     ) -> bool:
         self.reset()  # clear cache of is_tip_stable
-        return (
-            index.is_nearly_straight_or_straight
-            and middle.is_not_straight_at_all
-            and ring.is_not_straight_at_all
-            and pinky.is_not_straight_at_all
-            and self.is_tip_stable
-        )
+
+        is_stable = True
+        tracking_detection: DetectionState | None = None
+        if tracking_detections := self.tracking_detections:
+            tracking_detection = tracking_detections[0]
+            is_stable = tracking_detection.data["is_stable"]  # type: ignore[index]  # data defined in _stateful_start_tracking
+
+        cutoff_time = tracking_detection.tracking_start if tracking_detection else time() - self.min_gesture_duration
+        if (amplitude := self.get_movement_amplitude(cutoff_time)) is None:
+            return False
+
+        if is_stable:
+            is_stable = (
+                index.is_nearly_straight_or_straight
+                and middle.is_not_straight_at_all
+                and ring.is_not_straight_at_all
+                and pinky.is_not_straight_at_all
+                and amplitude < self.movement_threshold
+            )
+            if not is_stable:
+                if tracking_detection is None:
+                    return False
+                tracking_detection.data["is_stable"] = False  # type: ignore[index]  # data defined in _stateful_start_tracking
+
+        if is_stable:
+            return True
+
+        # Not stable, we still return True until we hit a major movement
+        return amplitude < self.tap_movement_threshold
 
     def _stateful_start_tracking(self, now: float) -> DetectionState:
         detection = super()._stateful_start_tracking(now)
         detection.data = {
             "tap_position": self.index.end_point,
             "tap_id": str(uuid4()),
+            "is_stable": True,
         }
         return detection
 
@@ -418,28 +423,26 @@ class AirTapDetector(HandGesturesDetector):
         # Effectively update detections
         super()._stateful_update_detections(detected)
 
-        # Update tap position for all tracking states
-        if self.index.end_point is not None:
-            tap_position = self.index.end_point
-            for detection in self.tracking_detections:
-                # Only update TRACKING, because POST_DETECTING states keep their last position
-                median_position = self.index.get_tip_median_position(detection.tracking_start)
+        # Update tap position for all tracking detections in the "stable" state
+        for detection in self.tracking_detections:
+            if detection.data["is_stable"]:  # type: ignore[index]  # data defined in _stateful_start_tracking
+                if (median_position := self.index.get_tip_median_position(detection.tracking_start)) is None:
+                    continue
                 detection.data["tap_position"] = median_position  # type: ignore[index]  # data defined in _stateful_start_tracking
-                break
 
     def _stateful_can_start_tracking(self) -> bool:
         """Don't start new tracking if we removed one at same position due to max duration."""
+
+        if not self.index.landmarks or not self.index.end_point:
+            return False
+
         if self._last_removed_tip is None:
             return True
 
         # Check if last removed tip position is old enough to allow new tracking at the same position
         now = time()
-        if self._last_removed_tip[0] is not None and now - self._last_removed_tip[0] > 1:
+        if self._last_removed_tip[0] and now - self._last_removed_tip[0] > 1:
             self._last_removed_tip = None
-            return True
-
-        # Check if tip has moved from the last removed position
-        if not self.index.landmarks:
             return True
 
         tip = self.index.landmarks[-1]
@@ -465,6 +468,7 @@ class AirTapDetector(HandGesturesDetector):
         result = super().get_data()
         if not result:
             return result
+        result.pop("is_stable", None)  # Remove is_stable from data, it is for internal use only
         return result | {
             "max_duration": self.post_detection_duration,
             "elapsed_since_tap": time() - self.post_detecting_detections[0].post_detection_start,  # type: ignore[operator] # post_detection_start is set when setting the state to POST_DETECTING

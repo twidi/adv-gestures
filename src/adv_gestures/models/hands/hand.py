@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
 class Hand(SmoothedBase):
     _cached_props: ClassVar[tuple[str, ...]] = (
+        "stream_info",
         "is_facing_camera",
         "is_showing_side",
         "main_direction",
@@ -83,7 +84,7 @@ class Hand(SmoothedBase):
         self.handedness = handedness
 
         self.is_visible: bool = False
-        self.stream_info: StreamInfo | None = None
+        self._stream_info: StreamInfo | None = None
         self.palm: Palm = Palm(hand=self, config=config)
 
         self.thumb = Thumb(hand=self, config=config)
@@ -116,6 +117,12 @@ class Hand(SmoothedBase):
 
         self.gestures_detector = HandGesturesDetector(self)
 
+    @cached_property
+    def stream_info(self) -> StreamInfo:
+        if self._stream_info is None:
+            raise ValueError("Stream info is not set. Please update the hand with new data first.")
+        return self._stream_info
+
     @cached_property  # will never change after initialization
     def other_hand(self) -> Hand:
         """Get the other hand (left or right) based on handedness."""
@@ -146,8 +153,8 @@ class Hand(SmoothedBase):
     def update(
         self,
         default_gesture: Gestures | None,
-        all_landmarks: list[Landmark] | None = None,
-        stream_info: StreamInfo | None = None,
+        all_landmarks: list[Landmark] | None,
+        stream_info: StreamInfo,
     ) -> None:
         """Update the hand with new data from MediaPipe.
 
@@ -155,7 +162,7 @@ class Hand(SmoothedBase):
         after the hand data is updated. Use update_custom_gesture() for that.
         """
         self._raw_default_gesture = default_gesture
-        self.stream_info = stream_info
+        self._stream_info = stream_info
         if all_landmarks is None:
             for finger in self.fingers:
                 finger.update(landmarks=[])
@@ -252,7 +259,7 @@ class Hand(SmoothedBase):
 
     def _calc_is_showing_side(self) -> bool:
         """Check if hand is showing its side (perpendicular to camera)."""
-        if not self.stream_info or not self.is_visible or not self.palm:
+        if not self.is_visible or not self.palm:
             return False
 
         # Get centroids of all fingers except thumb (indices 1-4)
@@ -726,7 +733,7 @@ class Hand(SmoothedBase):
     @cached_property
     def frame_direction_line_points(self) -> tuple[tuple[float, float], tuple[float, float]] | None:
         """Get the entry and exit points of the hand's direction line through the frame boundaries."""
-        if not self.wrist_landmark or not self.main_direction or not self.stream_info:
+        if not self.wrist_landmark or not self.main_direction:
             return None
 
         # Create a Box representing the frame boundaries
@@ -803,14 +810,13 @@ class Hand(SmoothedBase):
         # s > 1 means after exit
 
         # Check if intersection point is within frame bounds
-        if self.stream_info:
-            intersection_x = px + t * pdx
-            intersection_y = py + t * pdy
+        intersection_x = px + t * pdx
+        intersection_y = py + t * pdy
 
-            if not (0 <= intersection_x <= self.stream_info.width and 0 <= intersection_y <= self.stream_info.height):
-                # Intersection is outside frame
-                # Return +inf or -inf depending on whether s would be positive or negative
-                return inf if s >= 0 else -inf
+        if not (0 <= intersection_x <= self.stream_info.width and 0 <= intersection_y <= self.stream_info.height):
+            # Intersection is outside frame
+            # Return +inf or -inf depending on whether s would be positive or negative
+            return inf if s >= 0 else -inf
 
         return s
 
@@ -913,30 +919,29 @@ class Hand(SmoothedBase):
         max_y = max(thumb_tip[1], index_tip[1])
 
         # Add padding based on frame dimensions and orientation
-        if self.stream_info:
-            if self.stream_info.width > self.stream_info.height:
-                # Landscape: 2% width, 1% height
-                padding_x = self.stream_info.width * 0.02
-                padding_y = self.stream_info.height * 0.01
-            elif self.stream_info.width < self.stream_info.height:
-                # Portrait: 1% width, 2% height
-                padding_x = self.stream_info.width * 0.01
-                padding_y = self.stream_info.height * 0.02
-            else:
-                # Square: 1.5% for both
-                padding_x = self.stream_info.width * 0.015
-                padding_y = self.stream_info.height * 0.015
+        if self.stream_info.width > self.stream_info.height:
+            # Landscape: 2% width, 1% height
+            padding_x = self.stream_info.width * 0.02
+            padding_y = self.stream_info.height * 0.01
+        elif self.stream_info.width < self.stream_info.height:
+            # Portrait: 1% width, 2% height
+            padding_x = self.stream_info.width * 0.01
+            padding_y = self.stream_info.height * 0.02
+        else:
+            # Square: 1.5% for both
+            padding_x = self.stream_info.width * 0.015
+            padding_y = self.stream_info.height * 0.015
 
-            min_x -= padding_x
-            max_x += padding_x
-            min_y -= padding_y
-            max_y += padding_y
+        min_x -= padding_x
+        max_x += padding_x
+        min_y -= padding_y
+        max_y += padding_y
 
-            # Ensure the box stays within frame boundaries
-            min_x = max(0, min_x)
-            min_y = max(0, min_y)
-            max_x = min(self.stream_info.width, max_x)
-            max_y = min(self.stream_info.height, max_y)
+        # Ensure the box stays within frame boundaries
+        min_x = max(0, min_x)
+        min_y = max(0, min_y)
+        max_x = min(self.stream_info.width, max_x)
+        max_y = min(self.stream_info.height, max_y)
 
         return Box(min_x, min_y, max_x, max_y)
 

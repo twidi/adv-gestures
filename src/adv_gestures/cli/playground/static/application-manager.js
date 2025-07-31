@@ -108,7 +108,7 @@ export class ApplicationManager {
     }
 
     update(handsData) {
-        if (handsData.stream_info && (!this.streamSize || this.streamSize.width !== handsData.stream_info.width || this.streamSize.height !== handsData.stream_info.height)) {
+        if (!this.streamSize || this.streamSize.width !== handsData.stream_info.width || this.streamSize.height !== handsData.stream_info.height) {
             // Update stream size if it has changed
             this.streamSize = {width: handsData.stream_info.width, height: handsData.stream_info.height};
             for (const app of this.applications.values()) {

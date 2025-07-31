@@ -79,7 +79,7 @@ class Session:
                 hands_data = self.hands.to_dict()
                 self.result_queue.put(hands_data)
         except Exception as e:
-            logger.error(f"Error in frame processing thread for {self.uid}: {e}")
+            logger.exception(f"Error in frame processing thread for {self.uid}: {e}")
         finally:
             # Signal that processing is done
             self.stop_processing = True

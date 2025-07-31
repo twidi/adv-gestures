@@ -48,6 +48,7 @@ class IndexTipStabilityConfig(BaseModel):
     min_duration: float = Field(0.5, description="Minimal duration (seconds) for index tip stability")
     max_duration: float = Field(1.5, description="Maximal duration (seconds) for index tip stability")
     movement_threshold: float = Field(0.02, description="Maximum movement threshold in normalized coordinates")
+    tap_movement_threshold: float = Field(0.04, description="Minimum movement threshold to validate an air tap")
 
 
 class BaseFingerConfig(BaseModel):

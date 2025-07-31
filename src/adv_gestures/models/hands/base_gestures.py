@@ -215,9 +215,14 @@ class BaseGestureDetector(Generic[WithGesturesType]):
                         # Too short, remove this detection
                         self.tracked_states.remove(detection)
                     else:
-                        # Valid - move to post-detecting
-                        self._stateful_mark_post_detecting(detection, now)
-                        self._last_valid_detection_time = now
+                        # Check if detection can transition to post-detecting
+                        if self._stateful_can_mark_post_detecting(detection, now):
+                            # Valid - move to post-detecting
+                            self._stateful_mark_post_detecting(detection, now)
+                            self._last_valid_detection_time = now
+                        else:
+                            # Cannot transition, remove this detection
+                            self.tracked_states.remove(detection)
 
             elif detection.state == StatefulDetectionState.ACTIVE:
                 # CONTINUOUS mode: continue while gesture is detected
@@ -253,6 +258,12 @@ class BaseGestureDetector(Generic[WithGesturesType]):
 
     def _stateful_can_start_tracking(self) -> bool:
         """Check if a new tracking state can be started. Override for custom logic."""
+        return True
+
+    def _stateful_can_mark_post_detecting(self, detection: DetectionState, now: float) -> bool:
+        """Check if detection can transition to POST_DETECTING state.
+        Override in subclasses for custom validation logic.
+        Returns True to allow transition, False to remove the detection."""
         return True
 
     def _stateful_mark_post_detecting(self, detection: DetectionState, now: float) -> None:

@@ -374,16 +374,14 @@ function processSnapshot(data) {
     data = enhanceData(data);
 
     // Store stream info
-    if (data.stream_info) {
-        const hadStreamInfo = !!state.streamInfo;
-        state.streamInfo = data.stream_info;
-        
-        // Only update canvas size on first stream info
-        if (!hadStreamInfo) {
-            updateCanvasSize();
-        }
+    const hadStreamInfo = !!state.streamInfo;
+    state.streamInfo = data.stream_info;
+
+    // Only update canvas size on first stream info
+    if (!hadStreamInfo) {
+        updateCanvasSize();
     }
-    
+
     // Check for gesture changes
     checkGestureChanges(data);
     
@@ -423,7 +421,8 @@ function extractPreAirTapData(data) {
     let hasPreAirTap = false;
     for (const hand of data.hands) {
         if (!hand.gestures?.PRE_AIR_TAP) continue;
-        const data = hand?.gestures_data?.PRE_AIR_TAP
+        const data = hand?.gestures_data?.PRE_AIR_TAP;
+        if (!data) continue;
         result[hand.handedness] = {
             tapPosition: {x: data.tap_position[0], y: data.tap_position[1]},
             maxDuration: data.max_duration,
@@ -458,7 +457,7 @@ function extractAirTapData(data) {
             maxDuration: data.max_duration,
             elapsedSinceTap: data.elapsed_since_tap,
             tapId: data.tap_id,
-            alreadyHandled: state.handledAirTaps.has(data.tapId),
+            alreadyHandled: state.handledAirTaps.has(data.tap_id),
         };
         hasAirTap = true;
     }
