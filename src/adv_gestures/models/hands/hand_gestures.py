@@ -3,6 +3,7 @@ from __future__ import annotations
 from math import sqrt
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, cast
+from uuid import uuid4
 
 from ...gestures import CUSTOM_GESTURES, Gestures
 from ...smoothing import GestureWeights, SmoothedBase, smoothed_bool
@@ -399,7 +400,10 @@ class AirTapDetector(HandGesturesDetector):
 
     def _stateful_start_tracking(self, now: float) -> DetectionState:
         detection = super()._stateful_start_tracking(now)
-        detection.data = {"tap_position": self.index.end_point}
+        detection.data = {
+            "tap_position": self.index.end_point,
+            "tap_id": str(uuid4()),
+        }
         return detection
 
     def _stateful_update_detections(self, detected: GestureWeights) -> None:

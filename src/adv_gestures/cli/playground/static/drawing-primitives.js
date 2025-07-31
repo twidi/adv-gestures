@@ -16,7 +16,7 @@ export const DrawingStyles = {
         borderRadius: 10,
         borderWidth: 1,
         borderWidthActive: 3,
-        iconSize: 48,
+        iconSize: 72,
         iconSpacing: 8,
         glowRadius: 10,
         glowOpacity: 0.3

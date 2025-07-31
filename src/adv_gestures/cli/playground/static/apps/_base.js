@@ -162,11 +162,10 @@ export class BaseApplication {
                 ctx.restore();
 
                 // Draw AIR_TAP progress indicator if preAirTapData exists
-                const preAirTapData = this.preAirTapData();
-                if (preAirTapData && preAirTapData[hand.handedness]) {
-                    const airTapInfo = preAirTapData[hand.handedness];
+                if (this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness]) {
+                    const airTapInfo = this.handsData.preAirTapData[hand.handedness];
                     const duration = airTapInfo.duration || 0;
-                    const maxDuration = airTapInfo.max_duration || 1;
+                    const maxDuration = airTapInfo.maxDuration || 1;
                     const progress = Math.min(duration / maxDuration, 1);
                     
                     // Only draw if there's some progress
@@ -185,12 +184,11 @@ export class BaseApplication {
         }
 
         // Draw ripple effects for air taps
-        const airTapData = this.airTapData();
-        if (airTapData) {
-            for (const [handedness, tapData] of Object.entries(airTapData)) {
-                if (tapData.tap_position && tapData.elapsed_since_tap !== undefined && tapData.max_duration) {
-                    const scaledPosition = this.scalePoint(tapData.tap_position);
-                    const progress = Math.min(tapData.elapsed_since_tap / tapData.max_duration, 1);
+        if (this.handsData.airTapData) {
+            for (const [handedness, tapData] of Object.entries(this.handsData.airTapData)) {
+                if (tapData.tapPosition && tapData.elapsedSinceTap !== undefined && tapData.maxDuration) {
+                    const scaledPosition = this.scalePoint(tapData.tapPosition);
+                    const progress = Math.min(tapData.elapsedSinceTap / tapData.maxDuration, 1);
                     DP.drawRippleEffect(
                         this.ctx,
                         scaledPosition.x,
@@ -201,54 +199,5 @@ export class BaseApplication {
             }
         }
     }
-
-    /** Returns pre-air-tap data for all hands
-     * 
-     * @return {Object|null} Object keyed by handedness ('LEFT'/'RIGHT') containing:
-     *   - duration {number}: Current duration of the pre-air-tap gesture (in seconds, starting from 0)
-     *   - max_duration {number}: Maximum duration allowed (in seconds)
-     *   - tap_position {Object}: Position where the tap will occur, with:
-     *     - x {number}: X coordinate (0-1 normalized)
-     *     - y {number}: Y coordinate (0-1 normalized)
-     * @return {null} if no hands are in pre-air-tap state
-     */
-    preAirTapData() {
-        let result = {};
-        let hasPreAirTap = false;
-        for (const hand of this.handsData.hands) {
-            if (!hand.gestures?.PRE_AIR_TAP) continue;
-            const data = hand?.gestures_data?.PRE_AIR_TAP
-            result[hand.handedness] = data;
-            result[hand.handedness].tap_position = {x: data.tap_position[0], y: data.tap_position[1]};
-            hasPreAirTap = true;
-        }
-        return hasPreAirTap ? result : null;
-    }
-
-    /** Returns air-tap data for all hands currently performing an air-tap
-     * 
-     * @return {Object|null} Object keyed by handedness ('LEFT'/'RIGHT') containing:
-     *   - tap_position {Object}: Position of the air-tap, with:
-     *     - x {number}: X coordinate (0-1 normalized)
-     *     - y {number}: Y coordinate (0-1 normalized)
-     *   - max_duration {number}: Maximum duration the air tap gesture is active
-     *   - elapsed_since_tap {number}: Time elapsed since the air tap occurred (in seconds)
-     * @return {null} if no hands are performing air-tap
-     */
-    airTapData() {
-        let result = {};
-        let hasAirTap = false;
-        for (const hand of this.handsData.hands) {
-            if (!hand.gestures?.AIR_TAP) continue;
-            const data = hand?.gestures_data?.AIR_TAP;
-            if (!data) continue;
-            result[hand.handedness] = data;
-            result[hand.handedness].tap_position = {x: data.tap_position[0], y: data.tap_position[1]};
-            hasAirTap = true;
-        }
-        return hasAirTap ? result : null;
-    }
-
-
 
 }

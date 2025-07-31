@@ -33,7 +33,8 @@ const state = {
         right: new Set(),
         both: new Set()
     },
-    appManager: null
+    appManager: null,
+    handledAirTaps: new Set()  // Set of IDs of air-taps that were handled
 };
 
 // DOM elements
@@ -395,13 +396,75 @@ function processSnapshot(data) {
 
 // Enhance data with additional properties if needed
 function enhanceData(data) {
-    if (data) {
-        // Save all visible hands. Never access via index 0 for left or index 1 for right
-        // If direct access to left/right hands is needed, use data.left and data.right
-        data.hands = [data.left, data.right].filter(hand => hand !== null && hand !== undefined && hand.is_visible);
-    }
+    if (!data) return null;
+    // Save all visible hands. Never access via index 0 for left or index 1 for right
+    // If direct access to left/right hands is needed, use data.left and data.right
+    data.hands = [data.left, data.right].filter(hand => hand !== null && hand !== undefined && hand.is_visible);
+
+    // Precompute pre-air-tap and air-tap data
+    data.airTapData = extractAirTapData(data);
+    data.preAirTapData = extractPreAirTapData(data);
+
     return data;
 }
+
+/** Returns pre-air-tap data for all hands
+ *
+ * @return {Object|null} Object keyed by handedness ('LEFT'/'RIGHT') containing:
+ *   - duration {number}: Current duration of the pre-air-tap gesture (in seconds, starting from 0)
+ *   - maxDuration {number}: Maximum duration allowed (in seconds)
+ *   - tapPosition {Object}: Position where the tap will occur, with:
+ *     - x {number}: X coordinate (0-1 normalized)
+ *     - y {number}: Y coordinate (0-1 normalized)
+ * @return {null} if no hands are in pre-air-tap state
+ */
+function extractPreAirTapData(data) {
+    let result = {};
+    let hasPreAirTap = false;
+    for (const hand of data.hands) {
+        if (!hand.gestures?.PRE_AIR_TAP) continue;
+        const data = hand?.gestures_data?.PRE_AIR_TAP
+        result[hand.handedness] = {
+            tapPosition: {x: data.tap_position[0], y: data.tap_position[1]},
+            maxDuration: data.max_duration,
+            duration: data.duration,
+        }
+        hasPreAirTap = true;
+    }
+    return hasPreAirTap ? result : null;
+}
+
+/** Returns air-tap data for all hands currently performing an air-tap
+ *
+ * @return {Object|null} Object keyed by handedness ('LEFT'/'RIGHT') containing:
+ *   - tapPosition {Object}: Position of the air-tap, with:
+ *     - x {number}: X coordinate (0-1 normalized)
+ *     - y {number}: Y coordinate (0-1 normalized)
+ *   - maxDuration {number}: Maximum duration the air tap gesture is active
+ *   - elapsedSinceTap {number}: Time elapsed since the air tap occurred (in seconds)
+ *   - tapId {string}: Unique identifier for this air tap gesture
+ *   - alreadyHandled {boolean}: Whether this air tap has already been handled by the application
+ * @return {null} if no hands are performing air-tap
+ */
+function extractAirTapData(data) {
+    let result = {};
+    let hasAirTap = false;
+    for (const hand of data.hands) {
+        if (!hand.gestures?.AIR_TAP) continue;
+        const data = hand?.gestures_data?.AIR_TAP;
+        if (!data) continue;
+        result[hand.handedness] = {
+            tapPosition: {x: data.tap_position[0], y: data.tap_position[1]},
+            maxDuration: data.max_duration,
+            elapsedSinceTap: data.elapsed_since_tap,
+            tapId: data.tap_id,
+            alreadyHandled: state.handledAirTaps.has(data.tapId),
+        };
+        hasAirTap = true;
+    }
+    return hasAirTap ? result : null;
+}
+
 
 // Check for gesture changes and log them
 function checkGestureChanges(data) {
@@ -548,7 +611,7 @@ async function init() {
         updateUI();
         
         // Initialize application manager
-        state.appManager = new ApplicationManager(elements.canvasContainer);
+        state.appManager = new ApplicationManager(elements.canvasContainer, state.handledAirTaps);
         
         // Setup camera
         const stream = await setupCamera();

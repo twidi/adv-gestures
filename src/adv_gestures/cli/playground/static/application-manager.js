@@ -3,13 +3,16 @@ import { DefaultApplication } from './apps/default.js';
 import { DebugApplication } from './apps/debug.js';
 
 export class ApplicationManager {
-    constructor(canvasContainer) {
+    constructor(canvasContainer, handledAirTaps) {
         this.applications = new Map();
         this.activeApp = null;
         this.defaultApp = null;
         this.iconSize = DrawingStyles.metrics.iconSize;
         this.iconSpacing = DrawingStyles.metrics.iconSpacing;
         this.canvasContainer = canvasContainer;
+        this.width = 0;
+        this.height = 0;
+        this.handledAirTaps = handledAirTaps;
 
         this.streamSize = null; // Will be set when stream info is available
 
@@ -17,8 +20,9 @@ export class ApplicationManager {
         this.iconCanvas = document.getElementById('app-icons');
         this.iconCtx = this.iconCanvas.getContext('2d');
         
-        // Add click handler for icon selection
+        // Add click and air-tap handlers for icon selection
         this.iconCanvas.addEventListener('click', (e) => this.handleIconClick(e));
+        this.iconCanvas.addEventListener('air-tap', (e) => this.handleIconClick(e));
 
         // Register all applications
         this.registerApplications();
@@ -45,6 +49,10 @@ export class ApplicationManager {
     }
 
     createCanvases(width, height) {
+        // Set manager dimensions
+        this.width = width;
+        this.height = height;
+
         // Create canvases for all applications
         for (const app of this.applications.values()) {
             app.createCanvas(width, height);
@@ -65,6 +73,10 @@ export class ApplicationManager {
     }
 
     resize(width, height) {
+        // Update manager dimensions
+        this.width = width;
+        this.height = height;
+
         // Update icon canvas size
         const iconCanvasWidth = this.iconSize + this.iconSpacing * 2;
         const iconCanvasHeight = height;
@@ -103,10 +115,19 @@ export class ApplicationManager {
                 app.setStreamSize(this.streamSize);
             }
         }
+        
+        // Check for air taps and simulate clicks if not already handled
+        if (handsData.airTapData) {
+            this.handleAirTaps(handsData.airTapData);
+        }
+        
         // Update only the active app
         if (this.activeApp) {
             this.activeApp.update(handsData);
         }
+
+        // Mark all air taps as handled (we receive them for many frames so we only handle them once)
+        this.markAirTapsAsHandled(handsData.airTapData);
     }
 
     draw() {
@@ -138,10 +159,10 @@ export class ApplicationManager {
     }
 
     handleIconClick(event) {
-        const rect = this.iconCanvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
+        const isAirTap = event.type === 'air-tap';
+        const x = isAirTap ? event.detail.tapPosition.x : event.offsetX;
+        const y = isAirTap ? event.detail.tapPosition.y : event.offsetY;
+
         // Check if click is within icon area
         if (x < this.iconSpacing || x > this.iconSpacing + this.iconSize) return;
         
@@ -158,6 +179,8 @@ export class ApplicationManager {
                     // Switch to clicked app
                     this.switchToApp(app.name);
                 }
+                event.stopImmediatePropagation();
+                event.preventDefault();
                 break;
             }
             
@@ -168,4 +191,66 @@ export class ApplicationManager {
     getActiveApp() {
         return this.activeApp;
     }
+    
+    handleAirTaps(airTapData) {
+        for (const [handedness, tapData] of Object.entries(airTapData)) {
+            // Skip if already handled
+            if (tapData.alreadyHandled) continue;
+
+            // Scale the tap position to icon canvas coordinates
+            const scaledPosition = this.scalePointToIconCanvas(tapData.tapPosition);
+            
+            // Create and dispatch custom air-tap event
+            const event = new CustomEvent('air-tap', {
+                bubbles: true,
+                cancelable: true,
+                detail: {
+                    tapPosition: scaledPosition,
+                    tapId: tapData.tapId
+                }
+            });
+            
+            // Dispatch the event on the icon canvas
+            this.iconCanvas.dispatchEvent(event);
+            
+            // If the event was handled (propagation stopped), mark the air tap as handled right away
+            if (event.defaultPrevented) {
+                // Mark this tap as handled
+                this.handledAirTaps.add(tapData.tapId);
+                tapData.alreadyHandled = true;
+            }
+        }
+    }
+    
+    scalePointToIconCanvas(point) {
+        // Scale from normalized coordinates (0-1) to icon canvas pixel coordinates
+        if (!this.streamSize || !point) return point;
+
+        // Compute scale
+        const scaleX = this.width / this.streamSize.width;
+        const scaleY = this.height / this.streamSize.height;
+
+        // First scale to stream size
+        const streamX = point.x * scaleX;
+        const streamY = point.y * scaleY;
+        
+        // Icon canvas is positioned at the left edge, so we only need to check if x is within bounds
+        // No additional scaling needed since icon canvas uses absolute positioning
+        return {
+            x: streamX,
+            y: streamY
+        };
+    }
+
+    markAirTapsAsHandled(airTapData) {
+        if (!airTapData) return;
+
+        for (const [handedness, tapData] of Object.entries(airTapData)) {
+            if (tapData && tapData.tapId) {
+                this.handledAirTaps.add(tapData.tapId);
+                tapData.alreadyHandled = true; // Mark as handled to avoid reprocessing
+            }
+        }
+    }
+
 }
