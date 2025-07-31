@@ -34,7 +34,9 @@ const state = {
         both: new Set()
     },
     appManager: null,
-    handledAirTaps: new Set()  // Set of IDs of air-taps that were handled
+    handledAirTaps: new Set(),  // Set of IDs of air-taps that were handled
+    reconnectAttempts: 0,
+    reconnectTimeout: null
 };
 
 // DOM elements
@@ -171,6 +173,33 @@ function setConnectionStatus(status, text) {
         }, 3000);
     } else {
         elements.connectionStatus.classList.remove('fade-out');
+    }
+}
+
+// Cleanup function for existing connections
+async function cleanupConnections() {
+    // Clear any pending reconnect timeout
+    if (state.reconnectTimeout) {
+        clearTimeout(state.reconnectTimeout);
+        state.reconnectTimeout = null;
+    }
+    
+    // Close EventSource
+    if (state.eventSource) {
+        state.eventSource.close();
+        state.eventSource = null;
+    }
+    
+    // Close peer connection
+    if (state.pc) {
+        state.pc.close();
+        state.pc = null;
+    }
+    
+    // Stop video tracks
+    if (state.stream) {
+        state.stream.getTracks().forEach(track => track.stop());
+        state.stream = null;
     }
 }
 
@@ -330,9 +359,12 @@ async function setupWebRTC() {
 function setupSSE() {
     state.eventSource = new EventSource(`/sse?uid=${state.uid}&mirror=${state.mirror}`);
     
+    const maxReconnectAttempts = 5;
+    
     state.eventSource.addEventListener('connected', () => {
         log('info', 'SSE connected');
         setConnectionStatus('connected', 'Connected');
+        state.reconnectAttempts = 0;  // Reset reconnect counter on successful connection
     });
     
     state.eventSource.addEventListener('snapshot', (event) => {
@@ -359,13 +391,32 @@ function setupSSE() {
                 log('error', 'SSE connection error');
             }
         }
-        setConnectionStatus('error', 'Connection lost - reload page');
+        // Check if the connection is closed or connecting (server down)
+        if (state.eventSource.readyState === EventSource.CLOSED || 
+            state.eventSource.readyState === EventSource.CONNECTING) {
+            
+            const stateText = state.eventSource.readyState === EventSource.CLOSED ? 'closed' : 'connecting';
+            log('error', `SSE connection ${stateText}`);
+            
+            // Clear any existing reconnect timeout
+            if (state.reconnectTimeout) {
+                clearTimeout(state.reconnectTimeout);
+            }
+            
+            if (state.reconnectAttempts < maxReconnectAttempts) {
+                state.reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 10000); // Exponential backoff, max 10s
+                setConnectionStatus('error', `Connection lost - reconnecting in ${delay/1000}s...`);
+                
+                state.reconnectTimeout = setTimeout(async () => {
+                    log('info', `Reconnection attempt ${state.reconnectAttempts}/${maxReconnectAttempts}`);
+                    await reconnect();
+                }, delay);
+            } else {
+                setConnectionStatus('error', 'Connection lost - reload page');
+            }
+        }
     });
-    
-    state.eventSource.onerror = () => {
-        log('error', 'SSE connection lost');
-        setConnectionStatus('error', 'Connection lost - reload page');
-    };
 }
 
 // Process snapshot data
@@ -602,6 +653,40 @@ function updateUI() {
     elements.mirrorToggle.classList.toggle('active', state.mirror);
     elements.mirrorToggle.querySelector('.toggle-state').textContent = state.mirror ? 'ON' : 'OFF';
     elements.video.classList.toggle('mirrored', state.mirror);
+}
+
+// Reconnect function
+async function reconnect() {
+    try {
+        // Clean up existing connections
+        await cleanupConnections();
+        
+        // Generate new UID
+        state.uid = generateUID();
+        log('info', `Generated new UID for reconnection: ${state.uid}`);
+        
+        // Clear handled air-taps since we have a new session
+        state.handledAirTaps.clear();
+        
+        // Re-acquire camera stream
+        const stream = await selectCamera(state.selectedCamera);
+        state.stream = stream;
+        elements.video.srcObject = stream;
+        
+        // Re-setup SSE connection with new UID
+        setupSSE();
+        
+        // Wait a bit for SSE to establish
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Re-setup WebRTC
+        await setupWebRTC();
+        
+        log('info', 'Reconnection successful');
+    } catch (error) {
+        log('error', `Reconnection failed: ${error.message}`);
+        setConnectionStatus('error', 'Reconnection failed - reload page');
+    }
 }
 
 // Main initialization
