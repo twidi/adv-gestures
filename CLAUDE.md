@@ -179,3 +179,12 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 
 - Everything in code, CLAUDE.md, and README.md must always be in English
 - If the user mentions "cloud" or "cloude", they are referring to the CLAUDE.md file
+
+## Voice Dictation and bad writing
+The user may use voice dictation or write in a way that is not grammatically correct:
+  - If the user mentions "cloud" or "cloude", they are referring to the CLAUDE.md file
+  - If the user mentions "RTAP" or similar writings, it may refer to the AIR_TAP gesture
+  - When names (functions, variables, etc.) are written in camel case or with spaces, they should be converted to the 
+    standard naming convention for the specific programming language (snake_case for Python, camelCase for JavaScript, etc.)
+  - When saying "type", speaking about fingers, it may refer to the finger tip
+  - The user may say the french world "trou" (or "trous") which is "hole" in English, but sounds like "true" in English. In this case, it refers to the `true` boolean value.
