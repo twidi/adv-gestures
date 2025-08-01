@@ -464,6 +464,27 @@ export class DrawingApplication extends BaseApplication {
         
         const ctx = this.ctx;
         
+        // Check if any index finger is outside the drawing area
+        let anyIndexOutsideDrawingArea = false;
+        for (const hand of this.handsData.hands) {
+            if (!hand.fingers || !hand.fingers.INDEX || !hand.fingers.INDEX.end_point) continue;
+            const scaledPoint = this.scalePoint(hand.fingers.INDEX.end_point);
+            if (!this.isPointInDrawingArea(scaledPoint)) {
+                anyIndexOutsideDrawingArea = true;
+                break;
+            }
+        }
+        
+        // If any index is outside drawing area, show normal cursors
+        if (anyIndexOutsideDrawingArea) {
+            // Temporarily enable showCursors to allow parent to draw
+            const originalShowCursors = this.showCursors;
+            this.showCursors = true;
+            super.drawCursors();
+            this.showCursors = originalShowCursors;
+            return;
+        }
+        
         // Use control states from update method
         
         for (const hand of this.handsData.hands) {
