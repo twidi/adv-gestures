@@ -544,21 +544,33 @@ class OtherFinger(Finger[FingerConfig]):
         dy = finger_tip[1] - thumb_tip[1]
         distance = sqrt(dx**2 + dy**2)
 
-        # Calculate hand scale using the thumb's IP-TIP segment length
-        # This gives us a reference that scales with hand distance from camera
-        hand_scale = 1.0
+        # Compare distance to a relative threshold based on current finger and thumb segment lengths
 
-        if len(thumb.landmarks) >= 4:
-            # For thumb: IP is at index 2, TIP is at index 3
-            ip = thumb.landmarks[2]  # IP
-            tip = thumb.landmarks[3]  # TIP
-            # Calculate segment length (coordinates already include aspect ratio)
+        segments = []
+        for finger in (thumb, self):
+            # Calculate segment length
+            ip = finger.landmarks[2]
+            tip = finger.landmarks[3]
             segment_dx = tip[0] - ip[0]
             segment_dy = tip[1] - ip[1]
-            hand_scale = sqrt(segment_dx**2 + segment_dy**2)
+            segment_length = sqrt(segment_dx**2 + segment_dy**2)
+            segments.append(segment_length)
 
-        # Touch threshold relative to hand scale
-        relative_threshold = self.finger_config.thumb_distance_relative_threshold * hand_scale
+        segment = max(segments)
+
+        relative_threshold = self.finger_config.thumb_distance_relative_threshold * segment
+
+        one_is_fully_bent = thumb.is_fully_bent or self.is_fully_bent
+        if one_is_fully_bent:
+            relative_threshold *= 2
+
+        # if self.index == FingerIndex.INDEX:  # and not (distance < relative_threshold):
+        #     print(
+        #         f"distance={distance:5.2f}, segments=(thumb={segments[0]:5.2f}, index={segments[1]:5.2f}), "
+        #         f"segment={segment:5.2f}, "
+        #         f"fully_bent={str(one_is_fully_bent):5}, relative_threshold={relative_threshold:5.2f}"
+        #         f" -> {distance < relative_threshold}"
+        #     )
 
         return distance < relative_threshold
 

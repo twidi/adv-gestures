@@ -64,7 +64,7 @@ class FingerConfig(BaseFingerConfig):
         description="Configuration for finger straightness detection",
     )
     thumb_distance_relative_threshold: float = Field(
-        0.8, description="Relative distance threshold for thumb touch detection"
+        1, description="Relative distance threshold for thumb touch detection"
     )
 
 
