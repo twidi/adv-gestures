@@ -1,6 +1,7 @@
 import { DP, DrawingStyles } from './drawing-primitives.js';
 import { DefaultApplication } from './apps/default.js';
 import { DebugApplication } from './apps/debug.js';
+import { DrawingApplication } from './apps/drawing.js';
 
 export class ApplicationManager {
     constructor(canvasContainer, handledAirTaps) {
@@ -37,6 +38,9 @@ export class ApplicationManager {
 
         const debugApp = new DebugApplication();
         this.registerApplication(debugApp);
+        
+        const drawingApp = new DrawingApplication();
+        this.registerApplication(drawingApp);
     }
 
     registerApplication(app, isDefault = false) {

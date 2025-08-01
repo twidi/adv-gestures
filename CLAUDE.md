@@ -165,6 +165,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - **IMPORTANT**: When adding, removing, or changing the type of any property on classes with a `to_dict()` method, you MUST update the corresponding `to_dict()` method
 - To get all hand tracking data in a single call, use `hands.to_dict()` which returns a complete hierarchy of all hand, finger, landmark, and gesture data
 - All `to_dict()` methods must have return type `dict[str, Any]`
+- To know what will be available in the playground mode, refer to the `to_dict()` methods of the different classes (`Hands`, `Hand`, `Finger`...)
 
 ## Code Organization
 
