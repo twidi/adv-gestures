@@ -283,7 +283,7 @@ class Hand(SmoothedBase):
         normalized_variance = total_variance / (self.stream_info.width**2)
 
         # Threshold (empirically determined)
-        threshold = 0.00025
+        threshold = 0.00035
 
         return normalized_variance < threshold
 
