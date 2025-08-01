@@ -867,6 +867,10 @@ class Hand(SmoothedBase):
 
         p_F = (d_B + s * B) / F
 
+        # Check for nan result (can happen with inf - inf)
+        if p_F != p_F:  # nan != nan is True
+            return None
+
         return p_F
 
     @cached_property
