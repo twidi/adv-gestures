@@ -227,6 +227,26 @@ export class DebugApplication extends BaseApplication {
                         }
                     });
                 }
+                
+                // Draw red circle if this finger touches the thumb
+                if (finger.type !== 'THUMB' && finger.tip_on_thumb) {
+                    // Find the thumb finger
+                    const thumb = fingersArray.find(f => f.type === 'THUMB');
+                    if (thumb && thumb.end_point) {
+                        // Calculate middle point between both tips
+                        const fingerTip = this.scalePoint(finger.end_point);
+                        const thumbTip = this.scalePoint(thumb.end_point);
+                        
+                        const middleX = (fingerTip.x + thumbTip.x) / 2;
+                        const middleY = (fingerTip.y + thumbTip.y) / 2;
+                        
+                        // Draw small red filled circle
+                        this.ctx.fillStyle = '#FF0000';
+                        this.ctx.beginPath();
+                        this.ctx.arc(middleX, middleY, 8, 0, 2 * Math.PI);
+                        this.ctx.fill();
+                    }
+                }
             });
         }
         
