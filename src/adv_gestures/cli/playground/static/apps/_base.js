@@ -135,62 +135,75 @@ export class BaseApplication {
 
             const indexFinger = hand.fingers.INDEX;
             
-            // Check if index finger is straight or nearly straight
-            if (!indexFinger.is_fully_bent) {
+            // Check if we should show cursor based on AIR_TAP/pre-AIR_TAP or specific finger conditions
+            const hasAirTapData = this.handsData.airTapData && this.handsData.airTapData[hand.handedness];
+            const hasPreAirTapData = this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness];
+            
+            // Check the specific finger conditions
+            const middleFinger = hand.fingers.MIDDLE;
+            const ringFinger = hand.fingers.RING;
+            const pinkyFinger = hand.fingers.PINKY;
+            
+            const fingerConditionsMet = indexFinger.is_nearly_straight_or_straight &&
+                                       middleFinger && middleFinger.is_not_straight_at_all &&
+                                       ringFinger && ringFinger.is_not_straight_at_all &&
+                                       pinkyFinger && pinkyFinger.is_not_straight_at_all;
+            
+            // Show cursor only if AIR_TAP/pre-AIR_TAP is active OR the specific finger conditions are met
+            if (!(hasAirTapData || hasPreAirTapData || fingerConditionsMet)) continue;
 
-                let x, y;
+            let x, y;
 
-                // Draw AIR_TAP progress indicator if preAirTapData exists
-                if (this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness]) {
-                    const tapData = this.handsData.preAirTapData[hand.handedness];
-                    const duration = tapData.duration || 0;
-                    const maxDuration = tapData.maxDuration || 1;
-                    const progress = Math.min(duration / maxDuration, 1);
-                    const position = this.scalePoint(tapData.tapPosition);
+            // Draw AIR_TAP progress indicator if preAirTapData exists
+            if (this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness]) {
+                const tapData = this.handsData.preAirTapData[hand.handedness];
+                const duration = tapData.duration || 0;
+                const maxDuration = tapData.maxDuration || 1;
+                const progress = Math.min(duration / maxDuration, 1);
+                const position = this.scalePoint(tapData.tapPosition);
 
-                    // Only draw if there's some progress
-                    if (progress > 0) {
-                        DP.drawProgressArc(
-                            ctx,
-                            position.x,
-                            position.y,
-                            cursorRadius + 5,
-                            progress,
-                            { color: cursorColor }
-                        );
-                    }
-
-                    // If preAirTap, we use this to draw the cursor position
-                    x = position.x;
-                    y = position.y;
-
-                } else {
-                    if (!indexFinger.landmarks || indexFinger.landmarks.length < 4) continue;
-                    const tip = indexFinger.landmarks[3];
-                    if (!tip) continue;
-                    // Scale the tip coordinates
-                    const scaledTip = this.scalePoint(tip);
-                    x = scaledTip.x;
-                    y = scaledTip.y;
+                // Only draw if there's some progress
+                if (progress > 0) {
+                    DP.drawProgressArc(
+                        ctx,
+                        position.x,
+                        position.y,
+                        cursorRadius + 5,
+                        progress,
+                        { color: cursorColor }
+                    );
                 }
 
-                // Draw cursor circle
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(x, y, cursorRadius, 0, Math.PI * 2);
-                ctx.fillStyle = cursorColor;
-                ctx.globalAlpha = 0.8;
-                ctx.fill();
-                
-                // Add a subtle border
-                ctx.strokeStyle = cursorColor;
-                ctx.globalAlpha = 1;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                
-                ctx.restore();
+                // If preAirTap, we use this to draw the cursor position
+                x = position.x;
+                y = position.y;
 
+            } else {
+                if (!indexFinger.landmarks || indexFinger.landmarks.length < 4) continue;
+                const tip = indexFinger.landmarks[3];
+                if (!tip) continue;
+                // Scale the tip coordinates
+                const scaledTip = this.scalePoint(tip);
+                x = scaledTip.x;
+                y = scaledTip.y;
             }
+
+            // Draw cursor circle
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, cursorRadius, 0, Math.PI * 2);
+            ctx.fillStyle = cursorColor;
+            ctx.globalAlpha = 0.8;
+            ctx.fill();
+
+            // Add a subtle border
+            ctx.strokeStyle = cursorColor;
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.restore();
+
         }
 
         // Draw ripple effects for air taps
