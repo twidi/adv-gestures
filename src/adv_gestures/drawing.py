@@ -158,6 +158,18 @@ def draw_hands_marks(hands: Hands, image: OpenCVImage) -> OpenCVImage:
     """Draw both hands on the image."""
     image = draw_hand_marks(hands.left, image)
     image = draw_hand_marks(hands.right, image)
+
+    # Draw frame box with dotted lines
+    if hands.frame_box:
+        # Blue color for FRAME gesture
+        color = (255, 128, 0)  # Orange-blue color
+        image = draw_dotted_box(
+            hands.frame_box,
+            image,
+            color=color,
+            thickness=3,
+        )
+
     return image
 
 

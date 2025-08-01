@@ -224,13 +224,13 @@ class FrameDetector(TwoHandsGesturesDetector):
         right_index_angle = cast(float, right_index_angle)
 
         # Different tolerances for thumb and index
-        thumb_tolerance = 40  # More tolerance for thumbs
-        index_tolerance = 25  # Less tolerance for index fingers
+        thumb_tolerance = 45  # More tolerance for thumbs
+        index_tolerance = 30  # Less tolerance for index fingers
 
         if not -index_tolerance <= left_index_angle <= index_tolerance:
             return False
 
-        if not 180 - index_tolerance <= right_index_angle or right_index_angle <= -180 + index_tolerance:
+        if not 180 - index_tolerance <= abs(right_index_angle):
             return False
 
         # Config 1: left thumb up (~90°), right thumb down (~-90°)

@@ -3,11 +3,12 @@ from __future__ import annotations
 from functools import cached_property
 from math import inf, sqrt
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from ...config import Config
 from ...gestures import Gestures
 from ...smoothing import (
+    BoxSmoother,
     EnumSmoother,
     GestureWeights,
     MultiGestureSmoother,
@@ -16,7 +17,12 @@ from ...smoothing import (
     smoothed_bool,
     smoothed_optional_float,
 )
-from ..utils import Handedness, HandsDirectionalRelationship, oriented_boxes_overlap
+from ..utils import (
+    Box,
+    Handedness,
+    HandsDirectionalRelationship,
+    oriented_boxes_overlap,
+)
 from .hand import Hand
 from .hands_gestures import TwoHandsGesturesDetector
 
@@ -36,6 +42,7 @@ class Hands(SmoothedBase):
         "directional_relationship",
         "bounding_boxes_overlap",
         "oriented_bounding_boxes_overlap",
+        "frame_box",
     )
 
     def __init__(self, config: Config) -> None:
@@ -371,8 +378,66 @@ class Hands(SmoothedBase):
 
         return oriented_boxes_overlap(left_corners, right_corners)
 
+    def _calc_frame_box(self) -> Box | None:
+        """Calculate the bounding box formed by the FRAME gesture.
+
+        The box is formed by the tips of the 4 fingers:
+        - min_x: x coordinate of left thumb tip
+        - max_x: x coordinate of right thumb tip
+        - min_y: y coordinate of the index finger that is on top
+        - max_y: y coordinate of the index finger that is on bottom
+
+        Returns None if FRAME gesture is not detected or fingers are not in correct positions.
+        """
+        # Check if FRAME gesture is detected
+        if Gestures.FRAME not in self.gestures:
+            return None
+
+        # Need both hands visible
+        if not self.left.is_visible or not self.right.is_visible:
+            return None
+
+        # Get finger tips
+        left_thumb_tip = self.left.thumb.end_point
+        left_index_tip = self.left.index.end_point
+        right_thumb_tip = self.right.thumb.end_point
+        right_index_tip = self.right.index.end_point
+
+        if not all([left_thumb_tip, left_index_tip, right_thumb_tip, right_index_tip]):
+            return None
+
+        # Type narrowing
+        left_thumb_tip = cast(tuple[float, float], left_thumb_tip)
+        left_index_tip = cast(tuple[float, float], left_index_tip)
+        right_thumb_tip = cast(tuple[float, float], right_thumb_tip)
+        right_index_tip = cast(tuple[float, float], right_index_tip)
+
+        # Get x coordinates from thumbs
+        min_x = max(0, left_thumb_tip[0])
+        max_x = min(self.stream_info.width, right_thumb_tip[0])
+
+        # Determine which index is on top and which is on bottom
+        # The one with smaller y is on top (y increases downward)
+        if left_index_tip[1] < right_index_tip[1]:
+            # Left index is on top, right index is on bottom
+            min_y = max(0, left_index_tip[1])
+            max_y = min(self.stream_info.height, right_index_tip[1])
+        else:
+            # Right index is on top, left index is on bottom
+            min_y = max(0, right_index_tip[1])
+            max_y = min(self.stream_info.height, left_index_tip[1])
+
+        # Ensure valid box
+        if min_x >= max_x or min_y >= max_y:
+            return None
+
+        return Box(min_x, min_y, max_x, max_y)
+
+    frame_box = SmoothedProperty(_calc_frame_box, BoxSmoother)
+
     def to_dict(self) -> dict[str, Any]:
         """Export hands data as a dictionary."""
+        frame_box = self.frame_box
         return {
             "left": self.left.to_dict() if self.left else None,
             "right": self.right.to_dict() if self.right else None,
@@ -385,5 +450,6 @@ class Hands(SmoothedBase):
             "directional_relationship": self.directional_relationship.name if self.directional_relationship else None,
             "bounding_boxes_overlap": self.bounding_boxes_overlap,
             "oriented_bounding_boxes_overlap": self.oriented_bounding_boxes_overlap,
+            "frame_box": frame_box.to_dict() if frame_box else None,
             "stream_info": self.stream_info.to_dict(),
         }
