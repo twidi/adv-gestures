@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import deque
 from enum import IntEnum
 from functools import cached_property
-from math import acos, atan2, degrees, exp, radians, sqrt
+from math import acos, atan2, degrees, exp, pi, radians, sqrt
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar
 
@@ -200,8 +200,8 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
             return None
 
         # Don't calculate direction if finger is fully bent
-        if self.is_fully_bent:
-            return None
+        # if self.is_fully_bent:
+        #     return None
 
         # Get the last two points
         second_last = self.landmarks[-2]
@@ -523,8 +523,69 @@ class OtherFinger(Finger[FingerConfig]):
 
     straightness_score = smoothed_float(_calc_straightness_score)
 
+    def _calc_thumb_convergence_score(self, thumb: Thumb) -> float | None:
+        """Calculate convergence score based on the intersection angle of finger and thumb rays.
+
+        Returns:
+        - None if rays diverge (fingers pointing away from each other)
+        - 0-1 score based on intersection angle (0=small angle, 1=large angle)
+        """
+        # Get finger's PIP-TIP vector (ray direction)
+        finger_pip = self.landmarks[1]  # PIP is at index 1
+        finger_tip = self.landmarks[3]  # TIP is at index 3
+        finger_dx = finger_tip[0] - finger_pip[0]
+        finger_dy = finger_tip[1] - finger_pip[1]
+
+        # Get thumb's IP-TIP vector (ray direction)
+        thumb_ip = thumb.landmarks[2]  # IP is at index 2
+        thumb_tip = thumb.landmarks[3]  # TIP is at index 3
+        thumb_dx = thumb_tip[0] - thumb_ip[0]
+        thumb_dy = thumb_tip[1] - thumb_ip[1]
+
+        # Check if rays are parallel (cross product near zero)
+        cross_product = finger_dx * thumb_dy - finger_dy * thumb_dx
+        if abs(cross_product) < 1e-6:
+            return None  # Rays are parallel, no intersection
+
+        # Calculate intersection point using parametric line equations
+        # Ray 1: finger_pip + t * (finger_dx, finger_dy)
+        # Ray 2: thumb_ip + s * (thumb_dx, thumb_dy)
+        dx_origin = thumb_ip[0] - finger_pip[0]
+        dy_origin = thumb_ip[1] - finger_pip[1]
+
+        t = (dx_origin * thumb_dy - dy_origin * thumb_dx) / cross_product
+        s = (dx_origin * finger_dy - dy_origin * finger_dx) / cross_product
+
+        # Check if rays diverge (intersection behind both rays)
+        if t < 0 and s < 0:
+            return None  # Rays diverge
+
+        # Calculate angle between rays using dot product
+        dot_product = finger_dx * thumb_dx + finger_dy * thumb_dy
+        finger_magnitude = sqrt(finger_dx**2 + finger_dy**2)
+        thumb_magnitude = sqrt(thumb_dx**2 + thumb_dy**2)
+
+        if finger_magnitude == 0 or thumb_magnitude == 0:
+            return None  # Degenerate vector
+
+        cos_angle = dot_product / (finger_magnitude * thumb_magnitude)
+        # Clamp to valid range [-1, 1] to handle numerical errors
+        cos_angle = max(-1, min(1, cos_angle))
+
+        # Convert to angle in radians
+        angle = acos(cos_angle)
+
+        # Normalize to 0-1 range (0=small angle, 1=perpendicular)
+        # Using pi/2 as max angle since we want perpendicular rays to score 1
+        score = min(angle / (pi / 2), 1.0)
+
+        return score
+
     def _calc_tip_on_thumb(self) -> bool:
         """Check if this finger tip touches the thumb tip of the same hand."""
+
+        if self.index != FingerIndex.INDEX:
+            return False
 
         # Get the thumb finger
         thumb = self.hand.thumb
@@ -539,13 +600,19 @@ class OtherFinger(Finger[FingerConfig]):
         if thumb_tip is None or finger_tip is None:
             return False
 
+        # Calculate convergence score for adaptive threshold
+        thumb_convergence_score = self._calc_thumb_convergence_score(thumb)
+
+        # If rays diverge, fingers can't be touching
+        if thumb_convergence_score is None:
+            return False
+
         # Calculate distance (coordinates already include aspect ratio correction)
         dx = finger_tip[0] - thumb_tip[0]
         dy = finger_tip[1] - thumb_tip[1]
         distance = sqrt(dx**2 + dy**2)
 
         # Compare distance to a relative threshold based on current finger and thumb segment lengths
-
         segments = []
         for finger in (thumb, self):
             # Calculate segment length
@@ -556,25 +623,26 @@ class OtherFinger(Finger[FingerConfig]):
             segment_length = sqrt(segment_dx**2 + segment_dy**2)
             segments.append(segment_length)
 
+        factor = (1.2 * thumb_convergence_score) ** 3
+
         segment = max(segments)
+        relative_threshold = self.finger_config.thumb_distance_relative_threshold * (1 + factor) * segment
+        # segment_mean = sum(segments) / len(segments)
+        # relative_threshold_mean = self.finger_config.thumb_distance_relative_threshold * (1 + factor) * segment_mean
 
-        relative_threshold = self.finger_config.thumb_distance_relative_threshold * segment
-
-        one_is_fully_bent = thumb.is_fully_bent or self.is_fully_bent
-        if one_is_fully_bent:
-            relative_threshold *= 2
-
-        # if self.index == FingerIndex.INDEX:  # and not (distance < relative_threshold):
+        # if self.index == FingerIndex.INDEX and not (distance < relative_threshold):
         #     print(
-        #         f"distance={distance:5.2f}, segments=(thumb={segments[0]:5.2f}, index={segments[1]:5.2f}), "
-        #         f"segment={segment:5.2f}, "
-        #         f"fully_bent={str(one_is_fully_bent):5}, relative_threshold={relative_threshold:5.2f}"
-        #         f" -> {distance < relative_threshold}"
+        #         f"[{time():.2f}] D={distance:5.2f}, segments=(t={segments[0]:5.2f}, i={segments[1]:5.2f}), "
+        #         f"S={thumb_convergence_score:4.2f}, F={factor:4.2f}, T={relative_threshold:6.2f} "
+        #         f"| max={segment:5.2f}, T={relative_threshold:5.2f} "
+        #         f"-> {str(distance < relative_threshold):5} ",
+        #         f"| avg={segment_mean:5.2f}, T={relative_threshold_mean:5.2f}"
+        #         f" -> {str(distance < relative_threshold_mean):5}",
         #     )
 
         return distance < relative_threshold
 
-    tip_on_thumb = smoothed_bool(_calc_tip_on_thumb)
+    tip_on_thumb = smoothed_bool(_calc_tip_on_thumb, window=0.5, ema_alpha=0.3)
 
     def to_dict(self) -> dict[str, Any]:
         """Export finger data as a dictionary, including tip_on_thumb."""
