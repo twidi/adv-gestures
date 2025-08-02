@@ -80,7 +80,8 @@ export class DrawingApplication extends BaseApplication {
         this.MAX_STROKE_SIZE = 50;
         this.INDICATOR_SIZE = 60;
         this.INDICATOR_MARGIN = 20;
-        
+        this.SHOW_DETECTED_POINTS = false; // Toggle to show/hide white dots for detected points
+
         // Control margins for angle detection
         this.ANGLE_MARGIN = 20; // degrees
         
@@ -489,6 +490,18 @@ export class DrawingApplication extends BaseApplication {
         // Draw all completed strokes
         for (const stroke of this.completedStrokes) {
             this.drawStrokeOutline(ctx, stroke.outline, stroke.color, stroke.path2D);
+            
+            // Draw white dots for each detected point
+            if (this.SHOW_DETECTED_POINTS) {
+                ctx.save();
+                ctx.fillStyle = '#FFFFFF';
+                for (const point of stroke.points) {
+                    ctx.beginPath();
+                    ctx.arc(point[0], point[1], 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
         }
     }
     
@@ -511,6 +524,18 @@ export class DrawingApplication extends BaseApplication {
         ctx.globalAlpha = 0.9;
         this.drawStrokeOutline(ctx, strokeOutline, this.currentColor);
         ctx.restore();
+        
+        // Draw white dots for each detected point
+        if (this.SHOW_DETECTED_POINTS) {
+            ctx.save();
+            ctx.fillStyle = '#FFFFFF';
+            for (const point of this.currentStroke) {
+                ctx.beginPath();
+                ctx.arc(point[0], point[1], 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
     }
     
     drawStrokeOutline(ctx, outline, color, path2D = null) {
