@@ -138,8 +138,8 @@ export class ApplicationManager {
         // Draw only the active app
         if (this.activeApp) {
             this.activeApp.draw();
-            // Draw cursors after the app has drawn its content
-            this.activeApp.drawCursors();
+            // Draw pointers after the app has drawn its content
+            this.activeApp.drawPointers();
         }
     }
 

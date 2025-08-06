@@ -8,7 +8,7 @@ export class BaseApplication {
         this.isActive = false;
         this.width = 0;
         this.height = 0;
-        this.showCursors = true;
+        this.showPointers = true;
         this.streamSize = null; // Will be {width, height} when stream info is available
         this.handsData = null;
         this.scale = null; // Will be {x, y} when stream info and canvas are available
@@ -95,11 +95,10 @@ export class BaseApplication {
     }
 
     draw() {
+        if (!this.ctx || !this.isActive) return;
         // Override in subclasses
         // Clear canvas by default
-        if (this.ctx) {
-            DP.clearCanvas(this.ctx);
-        }
+        DP.clearCanvas(this.ctx);
     }
 
     scaleX(value) {
@@ -121,21 +120,22 @@ export class BaseApplication {
     }
 
 
-    drawCursors() {
-        // Only draw if showCursors is true and we have context and hands data
-        if (!this.showCursors || !this.ctx || !this.handsData) return;
+    drawPointers(skipLeftHand = false, skipRightHand = false) {
+        // Only draw if showPointers is true and we have context and hands data
+        if (!this.showPointers || !this.ctx || !this.handsData) return;
 
         const ctx = this.ctx;
-        const cursorRadius = 10;
-        const cursorColor = DrawingStyles.colors.accent;
+        const pointerRadius = 5;
+        const pointerColor = DrawingStyles.colors.accent;
 
         // Process each hand
         for (const hand of this.handsData.hands) {
+            if ((hand.handedness === 'LEFT' && skipLeftHand) || (hand.handedness === 'RIGHT' && skipRightHand)) continue;
             if (!hand.fingers || !hand.fingers.INDEX) continue;
 
             const indexFinger = hand.fingers.INDEX;
             
-            // Check if we should show cursor based on AIR_TAP/pre-AIR_TAP or specific finger conditions
+            // Check if we should show pointer based on AIR_TAP/pre-AIR_TAP or specific finger conditions
             const hasAirTapData = this.handsData.airTapData && this.handsData.airTapData[hand.handedness];
             const hasPreAirTapData = this.handsData.preAirTapData && this.handsData.preAirTapData[hand.handedness];
             
@@ -149,7 +149,7 @@ export class BaseApplication {
                                        ringFinger && ringFinger.is_not_straight_at_all &&
                                        pinkyFinger && pinkyFinger.is_not_straight_at_all;
             
-            // Show cursor only if AIR_TAP/pre-AIR_TAP is active OR the specific finger conditions are met
+            // Show pointer only if AIR_TAP/pre-AIR_TAP is active OR the specific finger conditions are met
             if (!(hasAirTapData || hasPreAirTapData || fingerConditionsMet)) continue;
 
             let x, y;
@@ -168,13 +168,13 @@ export class BaseApplication {
                         ctx,
                         position.x,
                         position.y,
-                        cursorRadius + 5,
+                        pointerRadius + 5,
                         progress,
-                        { color: cursorColor }
+                        { color: pointerColor }
                     );
                 }
 
-                // If preAirTap, we use this to draw the cursor position
+                // If preAirTap, we use this to draw the pointer position
                 x = position.x;
                 y = position.y;
 
@@ -188,16 +188,16 @@ export class BaseApplication {
                 y = scaledTip.y;
             }
 
-            // Draw cursor circle
+            // Draw pointer circle
             ctx.save();
             ctx.beginPath();
-            ctx.arc(x, y, cursorRadius, 0, Math.PI * 2);
-            ctx.fillStyle = cursorColor;
+            ctx.arc(x, y, pointerRadius, 0, Math.PI * 2);
+            ctx.fillStyle = pointerColor;
             ctx.globalAlpha = 0.8;
             ctx.fill();
 
             // Add a subtle border
-            ctx.strokeStyle = cursorColor;
+            ctx.strokeStyle = pointerColor;
             ctx.globalAlpha = 1;
             ctx.lineWidth = 2;
             ctx.stroke();

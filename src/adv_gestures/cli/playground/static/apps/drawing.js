@@ -41,28 +41,32 @@ function getSvgPathFromStroke(points, closed = true) {
 export class DrawingApplication extends BaseApplication {
     constructor() {
         super('drawing');
-        this.showCursors = false; // We'll handle our own cursors
-        
+
         // Drawing state
-        this.isDrawing = false;
-        this.isErasing = false;
-        this.lastDrawPoint = null;
+        this.isLeftHandAdjustingControl = false;
+        this.isRightHandAdjustingControl = false;
+        this.lastDrawingPoint = null;
         
         // Drawing parameters
         this.currentColor = { h: 180, s: 100, l: 50 }; // HSL values
         this.currentStrokeSize = 10;
         
         // Perfect Freehand stroke management
-        this.currentStroke = []; // Points being collected for current stroke
-        this.completedStrokes = []; // Array of completed strokes
-        this.lastPointTime = 0; // For velocity calculation
+        this.strokes = []; // All strokes (last one is current if drawing)
+        this.lastDrawingPointTime = 0; // For velocity calculation
+        
+        // CLOSED_FIST activation tracking
+        this.activatorHand = null; // Hand showing CLOSED_FIST
+        this.drawingHand = null; // Hand that can draw (opposite of activator)
+        this.drawingPoint = null; // Last drawing point
+        this.erasingCircle = null; // Circle for erasing
         
         // Perfect Freehand options
         this.strokeOptions = {
             size: this.currentStrokeSize,
-            thinning: 0.6,        // Slightly more thinning for velocity effect
-            smoothing: 0.8,       // Higher smoothing for MediaPipe jitter
-            streamline: 0.7,      // More streamlining to reduce points
+            thinning: 0.5,        // Slightly more thinning for velocity effect
+            smoothing: 0.5,       // Higher smoothing for MediaPipe jitter
+            streamline: 0.5,      // More streamlining to reduce points
             simulatePressure: false,
             start: {
                 taper: 0,
@@ -81,6 +85,9 @@ export class DrawingApplication extends BaseApplication {
         this.INDICATOR_SIZE = 60;
         this.INDICATOR_MARGIN = 20;
         this.SHOW_DETECTED_POINTS = false; // Toggle to show/hide white dots for detected points
+        this.MIN_POINT_DISTANCE = 10; // Minimum distance in pixels between points
+        this.MAX_POINT_DISTANCE = 100; // Maximum distance in pixels between points (to filter jumps)
+        this.STROKE_CONTINUATION_TIME = 250; // Time in ms to continue a previous stroke
 
         // Control margins for angle detection
         this.ANGLE_MARGIN = 20; // degrees
@@ -88,13 +95,7 @@ export class DrawingApplication extends BaseApplication {
         // Drawing area margins
         this.DRAWING_AREA_MARGIN_SIDES = 100; // pixels from left and right edges
         this.DRAWING_AREA_MARGIN_TOP_BOTTOM = 40; // pixels from top and bottom edges
-        
-        // Control states
-        this.rightHandControllingColor = false;
-        this.leftHandControllingSize = false;
-        
-        // Track last drawing hand
-        this.lastDrawingHandedness = null;
+
         
         // Unified cooldown system
         this.cooldownEndAt = 0;
@@ -218,238 +219,220 @@ export class DrawingApplication extends BaseApplication {
         }
 
         // Reset states
-        this.isDrawing = false;
-        this.isErasing = false;
+        this.activatorHand = null;
+        this.drawingHand = null;
+        this.isLeftHandAdjustingControl = false;
+        this.isRightHandAdjustingControl = false;
+        this.drawingPoint = null;
+        this.erasingCircle = null;
 
-        // Reset control states
-        this.rightHandControllingColor = false;
-        this.leftHandControllingSize = false;
         
-        // Process all visible hands
-        let drawingHandedness = null;
-        let hasMultipleDrawingHands = false;
-        
-        // First pass: check which hands want to draw
+        // Phase 1: Detect CLOSED_FIST activation
+
+        let closedFistCount = 0;
         for (const hand of this.handsData.hands) {
-            if (!hand.fingers) continue;
-            
-            const index = hand.fingers.INDEX;
-            const pinky = hand.fingers.PINKY;
-            
-            // Check if this hand wants to draw
-            if (index && index.tip_on_thumb && pinky && !pinky.is_nearly_straight_or_straight) {
-                if (drawingHandedness === null) {
-                    drawingHandedness = hand.handedness;
+            if (this.handHasGesture(hand, 'CLOSED_FIST')) {
+                closedFistCount++;
+                if (closedFistCount === 1) {
+                    this.activatorHand = hand;
+                    this.drawingHand = hand.handedness === 'LEFT' ? this.handsData.right : this.handsData.left;
                 } else {
-                    hasMultipleDrawingHands = true;
+                    // Multiple CLOSED_FIST = no active drawing hand
+                    this.activatorHand = this.drawingHand = null;
                 }
             }
         }
-        
-        // If multiple hands want to draw, use the last one that was drawing
-        if (hasMultipleDrawingHands && this.lastDrawingHandedness) {
-            drawingHandedness = this.lastDrawingHandedness;
-        }
-        
-        // Process each hand
-        for (const hand of this.handsData.hands) {
-            const handId = hand.handedness;
-            const isRightHand = hand.handedness === 'RIGHT';
-            const isLeftHand = hand.handedness === 'LEFT';
 
-            // Update color from right hand (pointing down ~180°)
-            if (isRightHand) {
-                const normalizedY = this.getNormalizedYForFlatHand(hand, angle => Math.abs(angle) > (180 - this.ANGLE_MARGIN));
-                if (!isNaN(normalizedY)) {
-                    this.rightHandControllingColor = true;
-                    // Map normalized Y (0-1) to hue (0-360)
-                    const newHue = Math.round(normalizedY * 360);
-                    if (newHue !== this.currentColor.h) {
-                        this.currentColor.h = newHue;
-                        this.triggerCooldown(1000, 'color');
-                    }
-                    continue; // Skip other processing for this hand
-                }
-            }
-
-            // Update stroke size from left hand (pointing right ~0°)
-            if (isLeftHand) {
-                const normalizedY = this.getNormalizedYForFlatHand(hand, angle => Math.abs(angle) < this.ANGLE_MARGIN);
-                if (!isNaN(normalizedY)) {
-                    this.leftHandControllingSize = true;
-                    // Map normalized Y (0-1) to stroke size
-                    const newSize = this.MIN_STROKE_SIZE + normalizedY * (this.MAX_STROKE_SIZE - this.MIN_STROKE_SIZE);
-                    if (Math.abs(newSize - this.currentStrokeSize) > 0.5) {
-                        this.currentStrokeSize = newSize;
-                        this.triggerCooldown(1000, 'size');
-                    }
-                    continue; // Skip other processing for this hand
-                }
-            }
-
-            
-            // Process drawing/erasing only if not controlling
-            if (!hand.fingers) continue;
-            
+        if (this.drawingHand) {
             // Block drawing/erasing during color/size cooldown
-            if (now < this.cooldownEndAt && (this.cooldownSource === 'color' || this.cooldownSource === 'size')) {
-                continue;
+            if (!(now < this.cooldownEndAt && (this.cooldownSource === 'color' || this.cooldownSource === 'size'))) {
+                this.erasingCircle = this.getErasingCircle(this.drawingHand);
+                if (this.erasingCircle) {
+                    this.handleErasing();
+                } else {
+                    this.drawingPoint = this.getDrawingPoint(this.drawingHand);
+                    if (this.drawingPoint) {
+                        this.handleDrawing();
+                    }
+                }
             }
-            
-            // Check for eraser mode
-            const index = hand.fingers.INDEX;
-            const middle = hand.fingers.MIDDLE;
-            const ring = hand.fingers.RING;
-            const pinky = hand.fingers.PINKY;
-            
-            if (index && middle && ring && pinky &&
-                index.is_nearly_straight_or_straight &&
-                middle.is_nearly_straight_or_straight &&
-                !ring.is_nearly_straight_or_straight &&
-                !pinky.is_nearly_straight_or_straight) {
-                
-                this.isErasing = true;
-                this.handleErasing(index, middle);
-                continue;
+
+        } else {
+            // Only allow color/size controls if drawing mode is NOT active
+
+            // Adjust color from right hand (pointing down ~180°)
+            let normalizedY = this.getNormalizedYForFlatHand(this.handsData.right, angle => Math.abs(angle) > (180 - this.ANGLE_MARGIN));
+            if (!isNaN(normalizedY)) {
+                this.isRightHandAdjustingControl = true;
+                // Map normalized Y (0-1) to hue (0-360)
+                const newHue = Math.round(normalizedY * 360);
+                if (newHue !== this.currentColor.h) {
+                    this.currentColor.h = newHue;
+                    this.triggerCooldown(1000, 'color');
+                }
             }
-            
-            // Check for drawing mode (index tip on thumb AND pinky not straight)
-            if (index && index.tip_on_thumb && pinky && !pinky.is_nearly_straight_or_straight) {
-                // Only draw if this is the selected drawing hand
-                if (handId === drawingHandedness) {
-                    this.isDrawing = true;
-                    this.lastDrawingHandedness = handId;
-                    this.handleDrawing(hand);
+
+            normalizedY = this.getNormalizedYForFlatHand(this.handsData.left, angle => Math.abs(angle) < this.ANGLE_MARGIN);
+            if (!isNaN(normalizedY)) {
+                this.isLeftHandAdjustingControl = true;
+                // Map normalized Y (0-1) to stroke size
+                const newSize = this.MIN_STROKE_SIZE + normalizedY * (this.MAX_STROKE_SIZE - this.MIN_STROKE_SIZE);
+                if (Math.abs(newSize - this.currentStrokeSize) > 0.5) {
+                    this.currentStrokeSize = newSize;
+                    this.triggerCooldown(1000, 'size');
                 }
             }
         }
-        
+
         // Reset last draw point if not drawing
-        if (!this.isDrawing) {
-            this.lastDrawPoint = null;
-            // Complete the current stroke if it has points
-            if (this.currentStroke.length > 0) {
-                this.completeCurrentStroke();
+        if (!this.drawingPoint) {
+            this.lastDrawingPoint = null;
+            // Mark current stroke as completed if there is one
+            if (this.strokes.length > 0) {
+                const lastStroke = this.strokes.at(-1);
+                if (!lastStroke.completedAt && lastStroke.points.length > 0) {
+                    lastStroke.completedAt = Date.now();
+                }
             }
         }
     }
-    
-    handleDrawing(hand) {
-        const index = hand.fingers.INDEX;
-        
-        if (!index || !index.end_point) return;
-        
-        // Use index end point for drawing
-        const scaledPoint = this.scalePoint(index.end_point);
-        
-        // Check if point is within drawing area
+
+    getDrawingPoint(hand) {
+        if (!hand || !hand.is_visible || !hand.fingers || !hand.fingers.INDEX || !hand.fingers.INDEX.landmarks || hand.fingers.INDEX.landmarks.length < 4) return null;
+        const scaledPoint = this.scalePoint(hand.fingers.INDEX.landmarks[3]);
         if (!this.isPointInDrawingArea(scaledPoint)) {
-            this.lastDrawPoint = null;
-            // Complete stroke if we exit drawing area
-            if (this.currentStroke.length > 0) {
-                this.completeCurrentStroke();
-            }
-            return;
+            return null; // Point is outside drawing area, no drawing
         }
-        
-        // Add point to current stroke
-        const now = Date.now();
-        
-        // Calculate pressure based on velocity (for Perfect Freehand)
-        let pressure = 0.5; // Default pressure
-        if (this.lastDrawPoint && this.lastPointTime) {
-            const distance = Math.hypot(
-                scaledPoint.x - this.lastDrawPoint.x,
-                scaledPoint.y - this.lastDrawPoint.y
-            );
-            const timeDelta = now - this.lastPointTime;
-            if (timeDelta > 0) {
-                const velocity = distance / timeDelta;
-                // Slower movement = higher pressure = thicker line
-                // Adjusted for MediaPipe tracking characteristics
-                const normalizedVelocity = velocity / 50; // Lower divisor for more sensitivity
-                pressure = Math.max(0.2, Math.min(1, 1 - Math.pow(normalizedVelocity, 0.5)));
-            }
-        }
-        
-        // Add point with pressure
-        this.currentStroke.push([scaledPoint.x, scaledPoint.y, pressure]);
-        
-        this.lastDrawPoint = scaledPoint;
-        this.lastPointTime = now;
+        return scaledPoint;
     }
-    
-    handleErasing(indexFinger, middleFinger) {
-        if (!indexFinger.landmarks || !middleFinger.landmarks) return;
-        
-        const indexTip = indexFinger.landmarks[3];
-        const middleTip = middleFinger.landmarks[3];
-        
-        if (!indexTip || !middleTip) return;
-        
+
+    getErasingCircle(hand) {
+        if (!hand || !hand.is_visible || !hand.fingers) return null;
+
+        const index = hand.fingers.INDEX;
+        const middle = hand.fingers.MIDDLE;
+        const ring = hand.fingers.RING;
+        const pinky = hand.fingers.PINKY;
+
+        if (!index || !middle || !ring || !pinky || !index.is_nearly_straight_or_straight || !middle.is_nearly_straight_or_straight || ring.is_nearly_straight_or_straight || pinky.is_nearly_straight_or_straight) {
+            return null; // Not in eraser position
+        }
+
+        if (!index.landmarks || index.landmarks.length < 4 || !middle.landmarks || middle.landmarks.length < 4) {
+            return null; // Not enough landmarks to calculate eraser circle
+        }
+
+        const indexTip = index.landmarks[3];
+        const middleTip = middle.landmarks[3];
+
         // Calculate center and radius
         const center = {
             x: (indexTip.x + middleTip.x) / 2,
             y: (indexTip.y + middleTip.y) / 2
         };
-        
-        // Calculate distance for radius
-        const distance = Math.sqrt(
-            Math.pow(indexTip.x - middleTip.x, 2) + 
-            Math.pow(indexTip.y - middleTip.y, 2)
-        );
-        
+
         // Scale to canvas coordinates
         const scaledCenter = this.scalePoint(center);
+
+        if (!this.isPointInDrawingArea(center)) {
+            return null; // Center is outside drawing area, no erasing
+        }
+
+        // Calculate distance for radius
+        const distance = Math.sqrt(
+            Math.pow(indexTip.x - middleTip.x, 2) +
+            Math.pow(indexTip.y - middleTip.y, 2)
+        );
+
+        // Scale to canvas coordinates
         const scaledRadius = this.scaleX(distance) / 2;
+
+        return {center: scaledCenter, radius: scaledRadius};
+
+    }
+    
+    handleDrawing() {
+        if (!this.drawingPoint || !this.ctx) return;
+
+        // Add point to stroke
+        const now = Date.now();
         
-        // Only erase within drawing area
-        if (!this.isPointInDrawingArea(scaledCenter)) {
-            return;
+        // Check if we need to start a new stroke or continue the last one
+        const needNewStroke = this.strokes.length === 0 || 
+                             (this.lastDrawingPoint === null &&
+                              this.strokes.at(-1).completedAt &&
+                              (now - this.strokes.at(-1).completedAt) > this.STROKE_CONTINUATION_TIME);
+
+        if (needNewStroke) {
+            // Start a new stroke
+            this.strokes.push({
+                points: [],
+                color: { ...this.currentColor },
+                strokeSize: this.currentStrokeSize,
+                completedAt: null
+            });
+        }
+
+        // Get current stroke
+        const currentStroke = this.strokes.at(-1);
+        
+        // Check if we should add this point
+        let shouldAddPoint = true;
+        
+        // If there's already a point in the current stroke, check distance
+        if (currentStroke.points.length > 0) {
+            const lastPoint = currentStroke.points.at(-1);
+            const distance = Math.hypot(
+                this.drawingPoint.x - lastPoint[0],
+                this.drawingPoint.y - lastPoint[1]
+            );
+            
+            // Skip if too close to last point
+            if (distance < this.MIN_POINT_DISTANCE) {
+                shouldAddPoint = false;
+            }
+            // Skip if too far (jump detection)
+            else if (distance > this.MAX_POINT_DISTANCE) {
+                shouldAddPoint = false;
+                
+                // If it's a large jump, mark current stroke as completed and start a new one
+                if (currentStroke.points.length > 0) {
+                    currentStroke.completedAt = now;
+                    this.strokes.push({
+                        points: [],
+                        color: { ...this.currentColor },
+                        strokeSize: this.currentStrokeSize,
+                        completedAt: null
+                    });
+                }
+            }
         }
         
+        // Add point with pressure if it passes the distance check
+        if (shouldAddPoint) {
+            const targetStroke = this.strokes.at(-1);
+            targetStroke.points.push([this.drawingPoint.x, this.drawingPoint.y]);
+        }
+        
+        this.lastDrawingPoint = this.drawingPoint;
+        this.lastDrawingPointTime = now;
+    }
+    
+    handleErasing(indexFinger, middleFinger) {
+        if (!this.erasingCircle || !this.ctx) return;
+        if (!this.strokes || this.strokes.length === 0) return;
+
         // TODO: Implement erasing with Perfect Freehand strokes
         // For now, we'll need to detect which strokes intersect with the eraser circle
-        // of scaledRadius at scaledCenter and remove them from completedStrokes
+        // of this.erasingCircle.radius at this.erasingCircle.center and remove them from strokes
     }
     
-    completeCurrentStroke() {
-        if (this.currentStroke.length < 2) {
-            // Need at least 2 points for a stroke
-            this.currentStroke = [];
-            return;
-        }
-        
-        // Update stroke options with current size
-        const options = {
-            ...this.strokeOptions,
-            size: this.currentStrokeSize
-        };
-        
-        // Get stroke outline using Perfect Freehand
-        const strokeOutline = getStroke(this.currentStroke, options);
-        
-        // Convert outline to SVG path data
-        const pathData = getSvgPathFromStroke(strokeOutline);
-        const path2D = new Path2D(pathData);
-        
-        // Store completed stroke with Path2D
-        this.completedStrokes.push({
-            outline: strokeOutline,
-            path2D: path2D,
-            color: { ...this.currentColor }, // Copy current color
-            points: [...this.currentStroke] // Keep original points for erasing
-        });
-
-        // Clear current stroke
-        this.currentStroke = [];
-        this.lastPointTime = 0;
-    }
     
     clearDrawing() {
-        this.completedStrokes = [];
-        this.currentStroke = [];
+        this.strokes = [];
         this.triggerCooldown(1000, 'clear');
+        this.lastDrawingPoint = null;
+        this.lastDrawingPointTime = 0;
     }
     
     triggerCooldown(duration, source) {
@@ -470,26 +453,49 @@ export class DrawingApplication extends BaseApplication {
         // Clear display canvas
         DP.clearCanvas(this.ctx);
         
-        // Draw all completed strokes
+        // Draw all strokes
         this.drawStrokes();
-        
-        // Draw current stroke in progress
-        this.drawCurrentStroke();
         
         // Draw drawing area border
         this.drawDrawingAreaBorder();
         
         // Draw UI elements
         this.drawIndicators();
-        this.drawCursors();
     }
     
     drawStrokes() {
         const ctx = this.ctx;
         
-        // Draw all completed strokes
-        for (const stroke of this.completedStrokes) {
-            this.drawStrokeOutline(ctx, stroke.outline, stroke.color, stroke.path2D);
+        // Draw all strokes
+        for (let i = 0; i < this.strokes.length; i++) {
+            const stroke = this.strokes[i];
+            
+            // Skip strokes with less than 2 points
+            if (stroke.points.length < 2) continue;
+            
+            // Update stroke options with stroke's size
+            const options = {
+                ...this.strokeOptions,
+                size: stroke.strokeSize || this.currentStrokeSize
+            };
+            
+            // Get stroke outline using Perfect Freehand
+            const strokeOutline = getStroke(stroke.points, options);
+            
+            // Check if this is the current stroke (last stroke and still drawing)
+            const isCurrentStroke = i === this.strokes.length - 1 && this.drawingHand && !stroke.completedAt;
+            
+            // Draw with slight transparency if current stroke
+            if (isCurrentStroke) {
+                ctx.save();
+                ctx.globalAlpha = 0.9;
+            }
+            
+            this.drawStrokeOutline(ctx, strokeOutline, stroke.color);
+            
+            if (isCurrentStroke) {
+                ctx.restore();
+            }
             
             // Draw white dots for each detected point
             if (this.SHOW_DETECTED_POINTS) {
@@ -505,38 +511,6 @@ export class DrawingApplication extends BaseApplication {
         }
     }
     
-    drawCurrentStroke() {
-        if (this.currentStroke.length < 2) return;
-        
-        const ctx = this.ctx;
-        
-        // Update stroke options with current size
-        const options = {
-            ...this.strokeOptions,
-            size: this.currentStrokeSize
-        };
-        
-        // Get stroke outline using Perfect Freehand
-        const strokeOutline = getStroke(this.currentStroke, options);
-        
-        // Draw with slight transparency to show it's in progress
-        ctx.save();
-        ctx.globalAlpha = 0.9;
-        this.drawStrokeOutline(ctx, strokeOutline, this.currentColor);
-        ctx.restore();
-        
-        // Draw white dots for each detected point
-        if (this.SHOW_DETECTED_POINTS) {
-            ctx.save();
-            ctx.fillStyle = '#FFFFFF';
-            for (const point of this.currentStroke) {
-                ctx.beginPath();
-                ctx.arc(point[0], point[1], 2, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.restore();
-        }
-    }
     
     drawStrokeOutline(ctx, outline, color, path2D = null) {
         if (outline.length === 0) return;
@@ -610,6 +584,132 @@ export class DrawingApplication extends BaseApplication {
         DP.roundedRect(ctx, sizeX, sizeY, this.INDICATOR_SIZE, this.INDICATOR_SIZE, 10);
         ctx.stroke();
         
+        // Hand indicator position (below size indicator)
+        const handX = sizeX;
+        const handY = sizeY + this.INDICATOR_SIZE + 10;
+        
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        DP.roundedRect(ctx, handX, handY, this.INDICATOR_SIZE, this.INDICATOR_SIZE, 10);
+        ctx.fill();
+        
+        // Draw hand icons
+        const iconSize = this.INDICATOR_SIZE * 0.35;
+        const spacing = this.INDICATOR_SIZE * 0.1;
+        const leftHandX = handX + this.INDICATOR_SIZE / 2 - iconSize - spacing / 2;
+        const rightHandX = handX + this.INDICATOR_SIZE / 2 + spacing / 2;
+        const handIconY = handY + this.INDICATOR_SIZE / 2 - iconSize / 2;
+        
+        // Helper function to draw a simple hand icon
+        const drawHandIcon = (x, y, size, isLeft, handType) => {
+            ctx.save();
+            ctx.translate(x + size / 2, y + size / 2);
+            
+            // Set color based on hand type - only drawing hand gets accent color
+            ctx.fillStyle = (handType === 'drawing') 
+                ? DrawingStyles.colors.accent 
+                : 'rgba(255, 255, 255, 0.3)';
+            
+            // Draw palm
+            ctx.beginPath();
+            ctx.ellipse(0, size * 0.1, size * 0.35, size * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw fingers based on hand type
+            const fingerWidth = size * 0.12;
+            const fingerSpacing = size * 0.18;
+            const fingerHeight = size * 0.35;
+            
+            if (handType === 'activator') {
+                // Closed fist - show small knuckles at top
+                for (let i = -1.5; i <= 1.5; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        i * fingerSpacing,
+                        -size * 0.15,
+                        fingerWidth * 0.8,
+                        fingerWidth * 0.8,
+                        0,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                }
+            } else if (handType === 'drawing') {
+                // Only index finger up
+                ctx.beginPath();
+                ctx.ellipse(
+                    -0.5 * fingerSpacing,
+                    -size * 0.25,
+                    fingerWidth,
+                    fingerHeight,
+                    0,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            } else {
+                // All fingers (normal hand)
+                for (let i = -1.5; i <= 1.5; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        i * fingerSpacing,
+                        -size * 0.25,
+                        fingerWidth,
+                        fingerHeight,
+                        0,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                }
+            }
+            
+            // Draw thumb (inner side for both hands) - for all hand types
+            ctx.save();
+            ctx.rotate(isLeft ? Math.PI / 4 : -Math.PI / 4);
+            ctx.beginPath();
+            ctx.ellipse(
+                isLeft ? size * 0.35 : -size * 0.35,
+                0,
+                fingerWidth * 0.9,
+                fingerHeight * 0.8,
+                0,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+            ctx.restore();
+            
+            ctx.restore();
+        };
+        
+        // Determine hand types
+        let leftHandType = 'normal';
+        let rightHandType = 'normal';
+        
+        if (this.activatorHand) {
+            if (this.activatorHand.handedness === 'LEFT') {
+                leftHandType = 'activator';
+                rightHandType = 'drawing';
+            } else {
+                leftHandType = 'drawing';
+                rightHandType = 'activator';
+            }
+        }
+        
+        // Draw left hand icon
+        drawHandIcon(leftHandX, handIconY, iconSize, true, leftHandType);
+        
+        // Draw right hand icon
+        drawHandIcon(rightHandX, handIconY, iconSize, false, rightHandType);
+        
+        // Border
+        ctx.strokeStyle = DrawingStyles.colors.accent;
+        ctx.lineWidth = 2;
+        DP.roundedRect(ctx, handX, handY, this.INDICATOR_SIZE, this.INDICATOR_SIZE, 10);
+        ctx.stroke();
+        
         ctx.restore();
     }
     
@@ -629,111 +729,52 @@ export class DrawingApplication extends BaseApplication {
         ctx.restore();
     }
     
-    drawCursors() {
-        if (!this.handsData || !this.handsData.hands) return;
-        
-        const ctx = this.ctx;
-        
-        // Check if any index finger is outside the drawing area
-        let anyIndexOutsideDrawingArea = false;
-        for (const hand of this.handsData.hands) {
-            if (!hand.fingers || !hand.fingers.INDEX || !hand.fingers.INDEX.end_point) continue;
-            const scaledPoint = this.scalePoint(hand.fingers.INDEX.end_point);
-            if (!this.isPointInDrawingArea(scaledPoint)) {
-                anyIndexOutsideDrawingArea = true;
-                break;
-            }
-        }
-        
-        // If any index is outside drawing area, show normal cursors
-        if (anyIndexOutsideDrawingArea) {
-            // Temporarily enable showCursors to allow parent to draw
-            const originalShowCursors = this.showCursors;
-            this.showCursors = true;
-            super.drawCursors();
-            this.showCursors = originalShowCursors;
-            return;
-        }
-        
-        // Use control states from update method
-        
-        // Draw cursors for all visible hands
-        for (const hand of this.handsData.hands) {
-            if (!hand.fingers) continue;
-            this.drawHandCursor(hand);
-        }
+    drawPointers(skipLeftHand = false, skipRightHand = false) {
+        if (!this.showPointers || !this.ctx || !this.handsData) return;
+        skipLeftHand ||= this.drawHandPointer(this.handsData.left);
+        skipRightHand ||= this.drawHandPointer(this.handsData.right);
+        super.drawPointers(skipLeftHand, skipRightHand);
     }
     
-    drawHandCursor(hand) {
+    drawHandPointer(hand) {
+        if (!hand || !hand.is_visible || !this.ctx) return false;
+
         const ctx = this.ctx;
-        
-        const isRightHand = hand.handedness === 'RIGHT';
-        const isLeftHand = hand.handedness === 'LEFT';
-        
-        // Get current control states for this hand
-        const isControllingColor = isRightHand && this.getNormalizedYForFlatHand(hand, angle => Math.abs(angle) > (180 - this.ANGLE_MARGIN)) !== undefined;
-        const isControllingSize = isLeftHand && this.getNormalizedYForFlatHand(hand, angle => Math.abs(angle) < this.ANGLE_MARGIN) !== undefined;
-        
-        // Skip if controlling color or size
-        if (isControllingColor || isControllingSize) return;
-        
-        // Draw eraser cursor
-        const index = hand.fingers.INDEX;
-        const middle = hand.fingers.MIDDLE;
-        const ring = hand.fingers.RING;
-        const pinky = hand.fingers.PINKY;
-        
-        // Check if hand is in eraser mode
-        const isInEraserMode = index && middle && ring && pinky &&
-            index.is_nearly_straight_or_straight &&
-            middle.is_nearly_straight_or_straight &&
-            !ring.is_nearly_straight_or_straight &&
-            !pinky.is_nearly_straight_or_straight;
-            
-        if (isInEraserMode && index.landmarks && middle.landmarks) {
-            
-            const indexTip = index.landmarks[3];
-            const middleTip = middle.landmarks[3];
-            
-            if (indexTip && middleTip) {
-                const center = {
-                    x: (indexTip.x + middleTip.x) / 2,
-                    y: (indexTip.y + middleTip.y) / 2
-                };
-                
-                const distance = Math.sqrt(
-                    Math.pow(indexTip.x - middleTip.x, 2) + 
-                    Math.pow(indexTip.y - middleTip.y, 2)
-                );
-                
-                const scaledCenter = this.scalePoint(center);
-                const scaledRadius = this.scaleX(distance) / 2;
-                
-                // Draw eraser circle
+
+        if (hand === this.activatorHand) {
+            return true;  // Don't draw pointer for the activator hand
+        }
+        if (hand.handedness === 'LEFT' && this.isLeftHandAdjustingControl || hand.handedness === 'RIGHT' && this.isRightHandAdjustingControl) {
+            return true;  // Don't draw pointer for control adjusting hands
+        }
+
+        const erasingCircle = this.erasingCircle && this.drawingHand === hand ? this.erasingCircle : this.getErasingCircle(hand);
+        if (erasingCircle) {
+            // Draw eraser circle
+            ctx.save();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(erasingCircle.center.x, erasingCircle.center.y, erasingCircle.radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+            return true;
+        } else {
+            const drawingPoint = this.drawingHand && this.drawingHand === hand ? this.drawingPoint : this.getDrawingPoint(hand);
+            if (drawingPoint) {
+                // Draw pointer with color fill
                 ctx.save();
-                ctx.strokeStyle = '#FFFFFF';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
+                ctx.fillStyle = `hsl(${this.currentColor.h}, ${this.currentColor.s}%, ${this.currentColor.l}%)`;
                 ctx.beginPath();
-                ctx.arc(scaledCenter.x, scaledCenter.y, scaledRadius, 0, Math.PI * 2);
-                ctx.stroke();
+                ctx.arc(drawingPoint.x, drawingPoint.y, this.currentStrokeSize / 2, 0, Math.PI * 2);
+                ctx.fill();
                 ctx.restore();
+                return true;
             }
         }
-        
-        // Draw drawing cursor only when index tip is on thumb AND pinky not straight
-        const canDraw = index && index.tip_on_thumb && pinky && !pinky.is_nearly_straight_or_straight;
-        
-        if (!isInEraserMode && canDraw && index.end_point) {
-            const scaledPoint = this.scalePoint(index.end_point);
-            
-            // Draw cursor with color fill
-            ctx.save();
-            ctx.fillStyle = `hsl(${this.currentColor.h}, ${this.currentColor.s}%, ${this.currentColor.l}%)`;
-            ctx.beginPath();
-            ctx.arc(scaledPoint.x, scaledPoint.y, this.currentStrokeSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
+
+        return false;
+
     }
 }
