@@ -55,11 +55,14 @@ export class DrawingApplication extends BaseApplication {
         this.strokes = []; // All strokes (last one is current if drawing)
         this.lastDrawingPointTime = 0; // For velocity calculation
         
-        // CLOSED_FIST activation tracking
+        // activation and location tracking
         this.activatorHand = null; // Hand showing CLOSED_FIST
         this.drawingHand = null; // Hand that can draw (opposite of activator)
         this.drawingPoint = null; // Last drawing point
         this.erasingCircle = null; // Circle for erasing
+
+        // Swipe tracking
+        this.lastSwipe = null; // Whether the current swipe gesture was used (null or $handedness-$mode-$direction)
         
         // Perfect Freehand options
         this.strokeOptions = {
@@ -212,8 +215,8 @@ export class DrawingApplication extends BaseApplication {
         const now = Date.now();
         if (now < this.cooldownEndAt) {
             // During cooldown, only allow continuing the same action that triggered it
-            if (this.cooldownSource === 'activation' || this.cooldownSource === 'clear') {
-                return; // Block all interactions after activation or clear
+            if (this.cooldownSource === 'activation' || this.cooldownSource === 'clear' || this.cooldownSource === 'swipe') {
+                return; // Block all interactions after activation, clear, or swipe
             }
             // For color/size cooldowns, allow continuing that action but block others
         }
@@ -241,6 +244,27 @@ export class DrawingApplication extends BaseApplication {
                     this.activatorHand = this.drawingHand = null;
                 }
             }
+        }
+
+        // Check for SWIPE gesture when no activator hand
+        if (!this.activatorHand) {
+            let swipeDetected = false;
+            for (const hand of this.handsData.hands) {
+                if (this.handHasGesture(hand, 'SWIPE')) {
+                    // Get swipe data (direction and mode)
+                    const swipeData = hand.gestures_data && hand.gestures_data.SWIPE;
+                    if (swipeData && swipeData.mode && swipeData.direction) {
+                        swipeDetected = true;
+                        const swipeType = `${hand.handedness}-${swipeData.mode}-${swipeData.direction}`;
+                        if (!this.lastSwipe || this.lastSwipe !== swipeType) {
+                            this.lastSwipe = swipeType; // Mark swipe as used (because gesture can last many frames)
+                            this.handleSwipe(swipeData.mode);
+                            return; // Exit early to avoid processing other gestures during swipe
+                        }
+                    }
+                }
+            }
+            if (!swipeDetected) { this.lastSwipe = null; } // Reset swipe used flag if no swipe detected
         }
 
         if (this.drawingHand) {
@@ -433,6 +457,27 @@ export class DrawingApplication extends BaseApplication {
         this.triggerCooldown(1000, 'clear');
         this.lastDrawingPoint = null;
         this.lastDrawingPointTime = 0;
+    }
+    
+    handleSwipe(mode) {
+        if (!this.strokes || this.strokes.length === 0) return;
+        
+        if (mode === 'hand') {
+            // Remove the last stroke
+            this.strokes.pop();
+            this.triggerCooldown(250, 'swipe');
+        } else if (mode === 'index') {
+            // Remove the last point from the last stroke
+            const lastStroke = this.strokes.at(-1);
+            if (lastStroke && lastStroke.points && lastStroke.points.length > 0) {
+                lastStroke.points.pop();
+                // If the stroke has no points left, remove it
+                if (lastStroke.points.length === 0) {
+                    this.strokes.pop();
+                }
+            }
+            this.triggerCooldown(250, 'swipe');
+        }
     }
     
     triggerCooldown(duration, source) {
