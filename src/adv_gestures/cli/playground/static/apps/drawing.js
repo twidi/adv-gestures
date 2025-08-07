@@ -335,10 +335,8 @@ export class DrawingApplication extends BaseApplication {
 
         const index = hand.fingers.INDEX;
         const middle = hand.fingers.MIDDLE;
-        const ring = hand.fingers.RING;
-        const pinky = hand.fingers.PINKY;
 
-        if (!index || !middle || !ring || !pinky || !index.is_nearly_straight_or_straight || !middle.is_nearly_straight_or_straight || ring.is_nearly_straight_or_straight || pinky.is_nearly_straight_or_straight) {
+        if (!index || !middle || !index.is_nearly_straight_or_straight || !middle.is_nearly_straight_or_straight) {
             return null; // Not in eraser position
         }
 
@@ -446,9 +444,53 @@ export class DrawingApplication extends BaseApplication {
         if (!this.erasingCircle || !this.ctx) return;
         if (!this.strokes || this.strokes.length === 0) return;
 
-        // TODO: Implement erasing with Perfect Freehand strokes
-        // For now, we'll need to detect which strokes intersect with the eraser circle
-        // of this.erasingCircle.radius at this.erasingCircle.center and remove them from strokes
+        const centerX = this.erasingCircle.center.x;
+        const centerY = this.erasingCircle.center.y;
+        const radiusSquared = this.erasingCircle.radius * this.erasingCircle.radius;
+
+        const newStrokes = [];
+
+        for (const stroke of this.strokes) {
+            if (stroke.points.length < 2) continue;
+
+            const segments = [];
+            let currentSegment = null;
+
+            for (const point of stroke.points) {
+                const dx = point[0] - centerX;
+                const dy = point[1] - centerY;
+                const distanceSquared = dx * dx + dy * dy;
+
+                if (distanceSquared > radiusSquared) {
+                    if (!currentSegment) {
+                        currentSegment = [];
+                    }
+                    currentSegment.push(point);
+                } else {
+                    if (currentSegment && currentSegment.length > 0) {
+                        segments.push(currentSegment);
+                        currentSegment = null;
+                    }
+                }
+            }
+
+            if (currentSegment && currentSegment.length > 0) {
+                segments.push(currentSegment);
+            }
+
+            for (const segment of segments) {
+                if (segment.length >= 2) {
+                    newStrokes.push({
+                        points: segment,
+                        color: { ...stroke.color },
+                        strokeSize: stroke.strokeSize,
+                        completedAt: stroke.completedAt
+                    });
+                }
+            }
+        }
+
+        this.strokes = newStrokes;
     }
     
     
