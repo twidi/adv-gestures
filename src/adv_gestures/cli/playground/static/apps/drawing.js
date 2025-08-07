@@ -117,47 +117,29 @@ export class DrawingApplication extends BaseApplication {
     }
     
     drawIconContent(ctx, size, isActive) {
-        // Draw a pencil icon
-        const scale = size / 72;
+        // Draw a pencil icon outline
+        const scale = 0.9 * size / 72;
         ctx.save();
         ctx.scale(scale, scale);
+        ctx.translate(3, 2); // Adjust position to fit within icon size
         
-        // Pencil body
-        ctx.fillStyle = '#FFD700'; // Gold color
+        // Single pencil outline
+        ctx.strokeStyle = DrawingStyles.colors.accent;
+        ctx.lineWidth = 3;
+
         ctx.beginPath();
-        ctx.moveTo(20, 50);
-        ctx.lineTo(50, 20);
-        ctx.lineTo(58, 28);
-        ctx.lineTo(28, 58);
+        // Start from tip
+        ctx.moveTo(16, 62);  // tip point
+        ctx.lineTo(20, 50);  // to top-left of body
+        ctx.lineTo(50, 20);  // to top-right of body
+        ctx.lineTo(58, 12);  // to eraser top
+        ctx.lineTo(66, 20);  // to eraser right
+        ctx.lineTo(58, 28);  // to eraser bottom
+        ctx.lineTo(28, 58);  // to bottom-right of body
         ctx.closePath();
-        ctx.fill();
-        
-        // Pencil tip
-        ctx.fillStyle = '#444444';
-        ctx.beginPath();
-        ctx.moveTo(20, 50);
-        ctx.lineTo(12, 58);
-        ctx.lineTo(20, 66);
-        ctx.lineTo(28, 58);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Pencil point
-        ctx.fillStyle = '#000000';
-        ctx.beginPath();
-        ctx.arc(16, 58, 2, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Pencil eraser
-        ctx.fillStyle = '#FF69B4';
-        ctx.beginPath();
-        ctx.moveTo(50, 20);
-        ctx.lineTo(58, 12);
-        ctx.lineTo(66, 20);
-        ctx.lineTo(58, 28);
-        ctx.closePath();
-        ctx.fill();
-        
+        ctx.stroke();
+
+
         ctx.restore();
     }
 
