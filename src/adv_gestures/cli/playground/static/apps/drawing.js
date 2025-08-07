@@ -372,6 +372,19 @@ export class DrawingApplication extends BaseApplication {
         return {center: scaledCenter, radius: scaledRadius};
 
     }
+
+    createStroke(points=[], color=this.currentColor, strokeSize=this.currentStrokeSize, completedAt = null) {
+        return{
+            points: points,
+            color: { ...color },
+            strokeSize: strokeSize,
+            completedAt: completedAt,
+            modifiedAt: Date.now(),
+            path2D: null,
+            path2DGeneratedAt: 0,
+            fillStyle: `hsl(${color.h}, ${color.s}%, ${color.l}%)`,
+        };
+    }
     
     handleDrawing() {
         if (!this.drawingPoint || !this.ctx) return;
@@ -387,12 +400,7 @@ export class DrawingApplication extends BaseApplication {
 
         if (needNewStroke) {
             // Start a new stroke
-            this.strokes.push({
-                points: [],
-                color: { ...this.currentColor },
-                strokeSize: this.currentStrokeSize,
-                completedAt: null
-            });
+            this.strokes.push(this.createStroke());
         }
 
         // Get current stroke
@@ -420,20 +428,16 @@ export class DrawingApplication extends BaseApplication {
                 // If it's a large jump, mark current stroke as completed and start a new one
                 if (currentStroke.points.length > 0) {
                     currentStroke.completedAt = now;
-                    this.strokes.push({
-                        points: [],
-                        color: { ...this.currentColor },
-                        strokeSize: this.currentStrokeSize,
-                        completedAt: null
-                    });
+                    this.strokes.push(this.createStroke());
                 }
             }
         }
         
-        // Add point with pressure if it passes the distance check
+        // Add point if it passes the distance check
         if (shouldAddPoint) {
             const targetStroke = this.strokes.at(-1);
             targetStroke.points.push([this.drawingPoint.x, this.drawingPoint.y]);
+            targetStroke.modifiedAt = now;
         }
         
         this.lastDrawingPoint = this.drawingPoint;
@@ -480,12 +484,7 @@ export class DrawingApplication extends BaseApplication {
 
             for (const segment of segments) {
                 if (segment.length >= 2) {
-                    newStrokes.push({
-                        points: segment,
-                        color: { ...stroke.color },
-                        strokeSize: stroke.strokeSize,
-                        completedAt: stroke.completedAt
-                    });
+                    newStrokes.push(this.createStroke(segment, stroke.color, stroke.strokeSize, stroke.completedAt));
                 }
             }
         }
@@ -516,6 +515,8 @@ export class DrawingApplication extends BaseApplication {
                 // If the stroke has no points left, remove it
                 if (lastStroke.points.length === 0) {
                     this.strokes.pop();
+                } else {
+                    lastStroke.modifiedAt = Date.now();
                 }
             }
             this.triggerCooldown(250, 'swipe');
@@ -559,16 +560,7 @@ export class DrawingApplication extends BaseApplication {
             
             // Skip strokes with less than 2 points
             if (stroke.points.length < 2) continue;
-            
-            // Update stroke options with stroke's size
-            const options = {
-                ...this.strokeOptions,
-                size: stroke.strokeSize || this.currentStrokeSize
-            };
-            
-            // Get stroke outline using Perfect Freehand
-            const strokeOutline = getStroke(stroke.points, options);
-            
+
             // Check if this is the current stroke (last stroke and still drawing)
             const isCurrentStroke = i === this.strokes.length - 1 && this.drawingHand && !stroke.completedAt;
             
@@ -577,9 +569,20 @@ export class DrawingApplication extends BaseApplication {
                 ctx.save();
                 ctx.globalAlpha = 0.9;
             }
-            
-            this.drawStrokeOutline(ctx, strokeOutline, stroke.color);
-            
+
+            if (stroke.modifiedAt > stroke.path2DGeneratedAt) {
+                // Get stroke outline using Perfect Freehand
+                const outline = getStroke(stroke.points, {...this.strokeOptions, size: stroke.strokeSize || this.currentStrokeSize});
+                // Generate Path2D from stroke outline
+                stroke.path2D = new Path2D(getSvgPathFromStroke(outline));
+                stroke.path2DGeneratedAt = Date.now();
+            }
+
+            ctx.save();
+            ctx.fillStyle = stroke.fillStyle;
+            ctx.fill(stroke.path2D);
+            ctx.restore();
+
             if (isCurrentStroke) {
                 ctx.restore();
             }
@@ -596,26 +599,6 @@ export class DrawingApplication extends BaseApplication {
                 ctx.restore();
             }
         }
-    }
-    
-    
-    drawStrokeOutline(ctx, outline, color, path2D = null) {
-        if (outline.length === 0) return;
-        
-        ctx.save();
-        ctx.fillStyle = `hsl(${color.h}, ${color.s}%, ${color.l}%)`;
-        
-        if (path2D) {
-            // Use pre-calculated Path2D if available
-            ctx.fill(path2D);
-        } else {
-            // Create Path2D on the fly for current stroke
-            const pathData = getSvgPathFromStroke(outline);
-            const tempPath2D = new Path2D(pathData);
-            ctx.fill(tempPath2D);
-        }
-        
-        ctx.restore();
     }
     
     drawIndicators() {
