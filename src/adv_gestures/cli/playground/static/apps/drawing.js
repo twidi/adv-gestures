@@ -353,21 +353,26 @@ export class DrawingApplication extends BaseApplication {
             y: (indexTip.y + middleTip.y) / 2
         };
 
-        // Scale to canvas coordinates
-        const scaledCenter = this.scalePoint(center);
-
-        if (!this.isPointInDrawingArea(center)) {
-            return null; // Center is outside drawing area, no erasing
-        }
-
-        // Calculate distance for radius
+        // Calculate distance for radius first (before scaling)
         const distance = Math.sqrt(
             Math.pow(indexTip.x - middleTip.x, 2) +
             Math.pow(indexTip.y - middleTip.y, 2)
         );
 
         // Scale to canvas coordinates
+        const scaledCenter = this.scalePoint(center);
         const scaledRadius = this.scaleX(distance) / 2;
+
+        // Check if entire circle is outside drawing area
+        const circleCompletelyOutside = 
+            (scaledCenter.x + scaledRadius < this.DRAWING_AREA_MARGIN_SIDES) ||
+            (scaledCenter.x - scaledRadius > this.width - this.DRAWING_AREA_MARGIN_SIDES) ||
+            (scaledCenter.y + scaledRadius < this.DRAWING_AREA_MARGIN_TOP_BOTTOM) ||
+            (scaledCenter.y - scaledRadius > this.height - this.DRAWING_AREA_MARGIN_TOP_BOTTOM);
+
+        if (circleCompletelyOutside) {
+            return null; // Entire circle is outside drawing area, no erasing
+        }
 
         return {center: scaledCenter, radius: scaledRadius};
 
@@ -459,6 +464,7 @@ export class DrawingApplication extends BaseApplication {
 
             const segments = [];
             let currentSegment = null;
+            let strokeModified = false;
 
             for (const point of stroke.points) {
                 const dx = point[0] - centerX;
@@ -471,6 +477,7 @@ export class DrawingApplication extends BaseApplication {
                     }
                     currentSegment.push(point);
                 } else {
+                    strokeModified = true;
                     if (currentSegment && currentSegment.length > 0) {
                         segments.push(currentSegment);
                         currentSegment = null;
@@ -482,9 +489,13 @@ export class DrawingApplication extends BaseApplication {
                 segments.push(currentSegment);
             }
 
-            for (const segment of segments) {
-                if (segment.length >= 2) {
-                    newStrokes.push(this.createStroke(segment, stroke.color, stroke.strokeSize, stroke.completedAt));
+            if (!strokeModified) {
+                newStrokes.push(stroke);
+            } else {
+                for (const segment of segments) {
+                    if (segment.length >= 2) {
+                        newStrokes.push(this.createStroke(segment, stroke.color, stroke.strokeSize, stroke.completedAt));
+                    }
                 }
             }
         }
