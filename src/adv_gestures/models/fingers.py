@@ -584,9 +584,6 @@ class OtherFinger(Finger[FingerConfig]):
     def _calc_tip_on_thumb(self) -> bool:
         """Check if this finger tip touches the thumb tip of the same hand."""
 
-        if self.index != FingerIndex.INDEX:
-            return False
-
         # Get the thumb finger
         thumb = self.hand.thumb
 
