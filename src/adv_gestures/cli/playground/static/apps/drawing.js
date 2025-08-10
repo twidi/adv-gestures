@@ -633,26 +633,55 @@ export class DrawingApplication extends BaseApplication {
         const handIconY = handY + this.INDICATOR_SIZE / 2 - iconSize / 2;
         
         // Helper function to draw a simple hand icon
-        const drawHandIcon = (x, y, size, isLeft, handType) => {
+        const drawHandIcon = (x, y, size, isLeft, handSide) => {
             ctx.save();
             ctx.translate(x + size / 2, y + size / 2);
             
-            // Set color based on hand type - only drawing hand gets accent color
-            ctx.fillStyle = (handType === 'drawing') 
-                ? DrawingStyles.colors.accent 
-                : 'rgba(255, 255, 255, 0.3)';
+            // Check if hand is visible
+            const hand = this.handsData?.[handSide];
+            const isVisible = hand?.is_visible || false;
+            
+            // Determine hand state and color
+            let fillStyle = 'rgba(255, 255, 255, 0.1)'; // Very faint when not visible
+            let handState = 'normal';
+            
+            if (isVisible) {
+                // Check for closed fist
+                const isFist = this.isGestureActive('CLOSED_FIST', handSide);
+                
+                // Check if this hand is the drawing hand (in drawing mode)
+                const isDrawingHand = this.drawingHand && this.drawingHand.handedness === (handSide === 'left' ? 'LEFT' : 'RIGHT');
+                
+                // Check if hand can erase or draw
+                const erasingCircle = hand ? (hand === this.drawingHand ? this.erasingCircle : this.getErasingCircle(hand)) : null;
+                const drawingPoint = hand ? (hand === this.drawingHand ? this.drawingPoint : this.getDrawingPoint(hand)) : null;
+                
+                if (isFist) {
+                    handState = 'fist';
+                    fillStyle = isDrawingHand ? DrawingStyles.colors.accent : 'rgba(255, 255, 255, 0.5)';
+                } else if (erasingCircle) {
+                    handState = 'erasing';
+                    fillStyle = isDrawingHand ? DrawingStyles.colors.accent : 'rgba(255, 255, 255, 0.5)';
+                } else if (drawingPoint) {
+                    handState = 'drawing';
+                    fillStyle = isDrawingHand ? DrawingStyles.colors.accent : 'rgba(255, 255, 255, 0.5)';
+                } else {
+                    fillStyle = 'rgba(255, 255, 255, 0.3)'; // Normal visible hand
+                }
+            }
             
             // Draw palm
+            ctx.fillStyle = fillStyle;
             ctx.beginPath();
             ctx.ellipse(0, size * 0.1, size * 0.35, size * 0.4, 0, 0, Math.PI * 2);
             ctx.fill();
             
-            // Draw fingers based on hand type
+            // Draw fingers based on hand state
             const fingerWidth = size * 0.12;
             const fingerSpacing = size * 0.18;
             const fingerHeight = size * 0.35;
             
-            if (handType === 'activator') {
+            if (handState === 'fist') {
                 // Closed fist - show small knuckles at top
                 for (let i = -1.5; i <= 1.5; i++) {
                     ctx.beginPath();
@@ -667,11 +696,36 @@ export class DrawingApplication extends BaseApplication {
                     );
                     ctx.fill();
                 }
-            } else if (handType === 'drawing') {
+            } else if (handState === 'drawing') {
                 // Only index finger up
                 ctx.beginPath();
                 ctx.ellipse(
                     -0.5 * fingerSpacing,
+                    -size * 0.25,
+                    fingerWidth,
+                    fingerHeight,
+                    0,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            } else if (handState === 'erasing') {
+                // Index and middle fingers up
+                ctx.beginPath();
+                ctx.ellipse(
+                    -0.5 * fingerSpacing,
+                    -size * 0.25,
+                    fingerWidth,
+                    fingerHeight,
+                    0,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(
+                    0.5 * fingerSpacing,
                     -size * 0.25,
                     fingerWidth,
                     fingerHeight,
@@ -716,25 +770,11 @@ export class DrawingApplication extends BaseApplication {
             ctx.restore();
         };
         
-        // Determine hand types
-        let leftHandType = 'normal';
-        let rightHandType = 'normal';
-        
-        if (this.activatorHand) {
-            if (this.activatorHand.handedness === 'LEFT') {
-                leftHandType = 'activator';
-                rightHandType = 'drawing';
-            } else {
-                leftHandType = 'drawing';
-                rightHandType = 'activator';
-            }
-        }
-        
         // Draw left hand icon
-        drawHandIcon(leftHandX, handIconY, iconSize, true, leftHandType);
+        drawHandIcon(leftHandX, handIconY, iconSize, true, 'left');
         
         // Draw right hand icon
-        drawHandIcon(rightHandX, handIconY, iconSize, false, rightHandType);
+        drawHandIcon(rightHandX, handIconY, iconSize, false, 'right');
         
         // Border
         ctx.strokeStyle = DrawingStyles.colors.accent;
