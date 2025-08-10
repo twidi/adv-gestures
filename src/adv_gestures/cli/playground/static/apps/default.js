@@ -80,8 +80,8 @@ export class DefaultApplication extends BaseApplication {
             this.ctx.globalAlpha = this.iconOpacity;
             
             for (const [app, rect] of this.iconRects.entries()) {
-                const isActive = app === this.activeApp;
-                app.drawIcon(this.ctx, rect.x, rect.y, this.iconSize, isActive);
+                // In default app, all icons are drawn the same way (no active/inactive distinction)
+                app.drawIcon(this.ctx, rect.x, rect.y, this.iconSize, false);
             }
             
             this.ctx.restore();

@@ -41,6 +41,8 @@ function getSvgPathFromStroke(points, closed = true) {
 export class DrawingApplication extends BaseApplication {
     constructor(applicationManager) {
         super('drawing', applicationManager);
+        // FontAwesome pen icon SVG path (regular style)
+        this.iconSvgPath = "M100.4 417.8C104.5 403.2 112.2 389.9 123 379.1L417 85.1C430.4 71.6 448.8 64 468 64C487.2 64 505.6 71.6 519.1 85.2L554.8 120.9C568.4 134.4 576 152.8 576 172C576 191.2 568.4 209.6 554.8 223.1L260.8 517.1C250.1 527.8 236.7 535.6 222.1 539.7L94.4 575.1C86.1 577.4 77.1 575.1 71 568.9C64.9 562.7 62.5 553.8 64.8 545.5L100.4 417.8zM450.8 119.1L397.9 172L468 242.1L520.9 189.2C525.5 184.6 528 178.5 528 172C528 165.5 525.4 159.4 520.9 154.8L485.2 119.1C480.6 114.6 474.4 112 468 112C461.6 112 455.4 114.6 450.8 119.1zM364 205.9L156.9 413.1C152 418 148.5 424 146.6 430.7L122.5 517.6L209.4 493.5C216 491.7 222.1 488.1 227 483.2L434.1 276L364 205.9z";
 
         // Drawing state
         this.isLeftHandAdjustingControl = false;
@@ -122,34 +124,6 @@ export class DrawingApplication extends BaseApplication {
         super.resize(width, height);
         // Strokes will automatically adjust to new size
     }
-    
-    drawIconContent(ctx, size, isActive) {
-        // Draw a pencil icon outline
-        const scale = 0.9 * size / 72;
-        ctx.save();
-        ctx.scale(scale, scale);
-        ctx.translate(3, 2); // Adjust position to fit within icon size
-        
-        // Single pencil outline
-        ctx.strokeStyle = DrawingStyles.colors.accent;
-        ctx.lineWidth = 3;
-
-        ctx.beginPath();
-        // Start from tip
-        ctx.moveTo(16, 62);  // tip point
-        ctx.lineTo(20, 50);  // to top-left of body
-        ctx.lineTo(50, 20);  // to top-right of body
-        ctx.lineTo(58, 12);  // to eraser top
-        ctx.lineTo(66, 20);  // to eraser right
-        ctx.lineTo(58, 28);  // to eraser bottom
-        ctx.lineTo(28, 58);  // to bottom-right of body
-        ctx.closePath();
-        ctx.stroke();
-
-
-        ctx.restore();
-    }
-
 
     getNormalizedYForFlatHand(hand, angleChecker) {
         if (!hand || hand.main_direction_angle === undefined) { return NaN; }

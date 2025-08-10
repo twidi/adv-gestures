@@ -14,6 +14,7 @@ export class BaseApplication {
         this.handsData = null;
         this.gestures = {};
         this.scale = null; // Will be {x, y} when stream info and canvas are available
+        this.iconSvgPath = null; // SVG path for the icon (from FontAwesome). Use those urls to get the svg: https://site-assets.fontawesome.com/releases/v7.0.0/svgs-full/regular/{icon name}.svg
     }
 
     createCanvas(width, height) {
@@ -68,25 +69,64 @@ export class BaseApplication {
     }
 
     drawIcon(ctx, x, y, size, isActive) {
+        // Only draw if we have an icon SVG path
+        if (!this.iconSvgPath) return;
+        
         // Draw icon container
         DP.drawIconContainer(ctx, x, y, size, isActive, false);
         
         // Draw icon content
         ctx.save();
-        ctx.translate(x, y);
-        this.drawIconContent(ctx, size, isActive);
+        // Translate to center of container
+        ctx.translate(x + size / 2, y + size / 2);
+        
+        // If we have an SVG path, use it
+        if (this.iconSvgPath) {
+            this.drawSvgIcon(ctx, size, isActive);
+        } else {
+            // Fallback to custom drawing (for backwards compatibility)
+            this.drawIconContent(ctx, size, isActive);
+        }
+        
         ctx.restore();
     }
     
     /**
-     * Draw the icon content - must be implemented by subclasses
+     * Draw SVG icon from path
+     * @param {CanvasRenderingContext2D} ctx - Canvas context (already translated to icon position)
+     * @param {number} size - Size of the icon
+     * @param {boolean} isActive - Whether the icon is active
+     */
+    drawSvgIcon(ctx, size, isActive) {
+        const iconSize = size * DrawingStyles.metrics.iconSvgScale; // Use scale from constants
+        const scale = iconSize / 640; // FontAwesome SVGs have viewBox of 640x640
+        
+        ctx.save();
+        // Center the icon - translate to top-left corner of where icon should be
+        ctx.translate(-320 * scale, -320 * scale);
+        ctx.scale(scale, scale);
+        
+        // Create path from SVG path data
+        const path = new Path2D(this.iconSvgPath);
+        
+        // Always use accent color for icons
+        ctx.fillStyle = DrawingStyles.colors.accent;
+        // Don't override globalAlpha - respect the opacity set by parent
+        
+        // Fill the path
+        ctx.fill(path);
+        
+        ctx.restore();
+    }
+    
+    /**
+     * Draw the icon content - can be overridden by subclasses for custom icons
      * @param {CanvasRenderingContext2D} ctx - Canvas context (already translated to icon position)
      * @param {number} size - Size of the icon
      * @param {boolean} isActive - Whether the icon is active
      */
     drawIconContent(ctx, size, isActive) {
-        // Abstract method - must be implemented by subclasses
-        throw new Error(`${this.constructor.name} must implement drawIconContent()`);
+        // Default implementation - do nothing if no SVG path is set
     }
 
     update(handsData, gestures) {

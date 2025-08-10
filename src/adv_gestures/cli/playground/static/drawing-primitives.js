@@ -16,8 +16,9 @@ export const DrawingStyles = {
         borderRadius: 10,
         borderWidth: 1,
         borderWidthActive: 3,
-        iconSize: 72,
-        iconSpacing: 8,
+        iconSize: 90,
+        iconSpacing: 20,
+        iconSvgScale: 0.6,  // SVG icon size relative to container
         glowRadius: 10,
         glowOpacity: 0.3
     }
