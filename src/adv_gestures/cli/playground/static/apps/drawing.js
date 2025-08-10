@@ -85,6 +85,7 @@ export class DrawingApplication extends BaseApplication {
         this.MAX_STROKE_SIZE = 50;
         this.INDICATOR_SIZE = 60;
         this.INDICATOR_MARGIN = 20;
+        this.INDICATOR_HIDE_DELAY = 2000; // Delay in ms before hiding indicators
         this.SHOW_DETECTED_POINTS = false; // Toggle to show/hide white dots for detected points
         this.MIN_POINT_DISTANCE = 10; // Minimum distance in pixels between points
         this.MAX_POINT_DISTANCE = 100; // Maximum distance in pixels between points (to filter jumps)
@@ -100,12 +101,21 @@ export class DrawingApplication extends BaseApplication {
         // Unified cooldown system
         this.cooldownEndAt = 0;
         this.cooldownSource = null; // 'activation', 'clear', 'color', 'size'
+        
+        // Indicator visibility tracking
+        this.indicatorsVisibleUntil = 0;
+        this.previousHandStates = {
+            left: { visible: false, state: null },
+            right: { visible: false, state: null }
+        };
     }
 
     activate() {
         super.activate();
         // Trigger cooldown on activation
         this.triggerCooldown(1000, 'activation');
+        // Show all indicators on activation
+        this.showIndicators();
     }
     
     resize(width, height) {
@@ -268,6 +278,7 @@ export class DrawingApplication extends BaseApplication {
                 if (newHue !== this.currentColor.h) {
                     this.currentColor.h = newHue;
                     this.triggerCooldown(1000, 'color');
+                    this.showIndicators();
                 }
             }
 
@@ -279,10 +290,14 @@ export class DrawingApplication extends BaseApplication {
                 if (Math.abs(newSize - this.currentStrokeSize) > 0.5) {
                     this.currentStrokeSize = newSize;
                     this.triggerCooldown(1000, 'size');
+                    this.showIndicators();
                 }
             }
         }
 
+        // Check for hand state changes
+        this.checkHandStateChanges();
+        
         // Reset last draw point if not drawing
         if (!this.drawingPoint) {
             this.lastDrawingPoint = null;
@@ -294,6 +309,49 @@ export class DrawingApplication extends BaseApplication {
                 }
             }
         }
+    }
+    
+    checkHandStateChanges() {
+        const now = Date.now();
+        
+        for (const handSide of ['left', 'right']) {
+            const hand = this.handsData?.[handSide];
+            const prevState = this.previousHandStates[handSide];
+            
+            // Determine current hand state
+            let currentState = null;
+            const isVisible = hand?.is_visible || false;
+            
+            if (isVisible) {
+                const isFist = this.isGestureActive('CLOSED_FIST', handSide);
+                const isDrawingHand = this.drawingHand && this.drawingHand.handedness === (handSide === 'left' ? 'LEFT' : 'RIGHT');
+                const erasingCircle = hand ? (hand === this.drawingHand ? this.erasingCircle : this.getErasingCircle(hand)) : null;
+                const drawingPoint = hand ? (hand === this.drawingHand ? this.drawingPoint : this.getDrawingPoint(hand)) : null;
+                
+                if (isFist) {
+                    currentState = 'fist';
+                } else if (erasingCircle) {
+                    currentState = 'erasing';
+                } else if (drawingPoint) {
+                    currentState = 'drawing';
+                } else {
+                    currentState = 'normal';
+                }
+            }
+            
+            // Check if state changed
+            if (prevState.visible !== isVisible || prevState.state !== currentState) {
+                this.showIndicators();
+                this.previousHandStates[handSide] = {
+                    visible: isVisible,
+                    state: currentState
+                };
+            }
+        }
+    }
+    
+    showIndicators() {
+        this.indicatorsVisibleUntil = Date.now() + this.INDICATOR_HIDE_DELAY;
     }
 
     getDrawingPoint(hand) {
@@ -565,6 +623,12 @@ export class DrawingApplication extends BaseApplication {
     
     drawIndicators() {
         const ctx = this.ctx;
+        const now = Date.now();
+        
+        // Check if indicators should be visible
+        if (now >= this.indicatorsVisibleUntil) {
+            return; // Don't draw any indicators
+        }
         
         // Color indicator position (top right)
         const colorX = this.width - this.INDICATOR_SIZE - this.INDICATOR_MARGIN;
