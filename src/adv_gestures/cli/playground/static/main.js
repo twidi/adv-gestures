@@ -86,10 +86,33 @@ function log(level, message) {
         fractionalSecondDigits: 2
     });
     
+    // Parse message to color gesture names in added/removed messages
+    let formattedMessage = message;
+    
+    // Match "gesture(s) added: GESTURE_NAME1, GESTURE_NAME2 (active: ...)"
+    const addedMatch = message.match(/gestures?\s+added:\s+([^(]+)\s+\(active:/);
+    if (addedMatch) {
+        const gesturesPart = addedMatch[1].trim();
+        const coloredGestures = gesturesPart.split(',').map(g => 
+            `<span style="color: #00ff00">${g.trim()}</span>`
+        ).join(', ');
+        formattedMessage = message.replace(gesturesPart, coloredGestures);
+    }
+    
+    // Match "gesture(s) removed: GESTURE_NAME1, GESTURE_NAME2 (active: ...)"
+    const removedMatch = message.match(/gestures?\s+removed:\s+([^(]+)\s+\(active:/);
+    if (removedMatch) {
+        const gesturesPart = removedMatch[1].trim();
+        const coloredGestures = gesturesPart.split(',').map(g => 
+            `<span style="color: #ff0000">${g.trim()}</span>`
+        ).join(', ');
+        formattedMessage = message.replace(gesturesPart, coloredGestures);
+    }
+    
     logEntry.innerHTML = `
         <span class="log-timestamp">${time}</span>
         <span class="log-level ${level}">${level}</span>
-        <span class="log-message">${message}</span>
+        <span class="log-message">${formattedMessage}</span>
     `;
     
     // Add to beginning of logs content
