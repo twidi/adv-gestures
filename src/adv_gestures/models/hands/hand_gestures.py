@@ -644,6 +644,16 @@ class SnapDetector(HandGesturesDetector):
 
         # Check if we're in the before state
         if self._match_before_snap():
+            #             print(f"""
+            # PRESNAP at {current_time=}
+            #     {self.ring.is_not_straight_at_all=}
+            #     {self.pinky.is_not_straight_at_all=}
+            #     {not self.index.is_fully_bent=}
+            #     {not self.index.is_nearly_straight_or_straight=}
+            #     {not self.middle.is_fully_bent=}
+            #     {not self.middle.is_nearly_straight_or_straight=}
+            #     {self.middle.tip_on_thumb=}
+            # """)
             self._last_before_state_time = current_time
             return False  # Not a snap yet
 
@@ -659,6 +669,94 @@ class SnapDetector(HandGesturesDetector):
                 return True
 
             self._last_before_state_time = None
+
+        return False
+
+
+class DoubleSnapDetector(HandGesturesDetector):
+    gesture = Gestures.DOUBLE_SNAP
+    stateful = True
+    min_gesture_duration = 0.0  # No minimum duration for first snap
+    max_gesture_duration = 1.0  # Maximum 1 second between snaps
+    post_detection_mode = True
+    post_detection_duration = 0.3  # Report double snap for 0.3s after detection
+
+    def __init__(self, obj: Hand) -> None:
+        super().__init__(obj)
+        self._snap_detector: SnapDetector | None = None
+        self._first_snap_time: float | None = None
+        self._waiting_for_second_snap = False
+        self._had_gap_after_first_snap = False
+        self._last_double_snap_time: float | None = None
+
+    @property
+    def snap_detector(self) -> SnapDetector:
+        if self._snap_detector is None:
+            self._snap_detector = cast(SnapDetector, self.hand.gestures_detector.detectors[Gestures.SNAP])
+        return self._snap_detector
+
+    def matches(
+        self,
+        hand: Hand,
+        thumb: Thumb,
+        index: IndexFinger,
+        middle: MiddleFinger,
+        ring: RingFinger,
+        pinky: PinkyFinger,
+        detected: GestureWeights,
+    ) -> bool:
+        # Check if a snap is detected
+        snap_detected = Gestures.SNAP in detected
+        current_time = time()
+
+        # If we just detected a double snap, wait for the post_detection_duration of the snap
+        # before allowing a new detection cycle
+        if self._last_double_snap_time:
+            if current_time - self._last_double_snap_time < self.snap_detector.post_detection_duration:
+                return False
+            else:
+                # Enough time has passed, reset for new detection
+                self._last_double_snap_time = None
+
+        # If we're waiting for second snap
+        if self._waiting_for_second_snap:
+            # First check for gap after first snap
+            if not snap_detected and not self._had_gap_after_first_snap:
+                self._had_gap_after_first_snap = True
+                return False
+
+            # If we had a gap and now detect a snap, it's the second snap
+            if snap_detected and self._had_gap_after_first_snap:
+                # Check if we're still within the time window
+                if self._first_snap_time and current_time - self._first_snap_time <= self.max_gesture_duration:
+                    # Second snap detected within time window!
+                    self._waiting_for_second_snap = False
+                    self._first_snap_time = None
+                    self._had_gap_after_first_snap = False
+                    self._last_double_snap_time = current_time
+                    return True
+                else:
+                    # Too late, reset completely
+                    self._waiting_for_second_snap = False
+                    self._first_snap_time = None
+                    self._had_gap_after_first_snap = False
+                    # Don't start a new detection cycle in the same frame
+                    return False
+
+            # Check if we've exceeded the time window
+            if self._first_snap_time and current_time - self._first_snap_time > self.max_gesture_duration:
+                # Reset state
+                self._waiting_for_second_snap = False
+                self._first_snap_time = None
+                self._had_gap_after_first_snap = False
+
+        # If first snap detected and we're not waiting
+        elif snap_detected and not self._waiting_for_second_snap:
+            # Only start tracking if this is truly a new snap (not continuing from a reset)
+            # We need to ensure we don't have a snap that was just reset from being too late
+            self._first_snap_time = current_time
+            self._waiting_for_second_snap = True
+            self._had_gap_after_first_snap = False
 
         return False
 
