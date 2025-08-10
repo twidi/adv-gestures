@@ -1,6 +1,91 @@
 import { BaseApplication } from './_base.js';
 import { DP, DrawingStyles } from '../drawing-primitives.js';
 
+// Cache for colored emoji canvases
+const emojiCanvasCache = new Map();
+
+// Create a colored version of an emoji
+function createColoredEmoji(emoji, color, fontSize) {
+    const cacheKey = `${emoji}_${color}_${fontSize}`;
+    
+    // Check if we already have this emoji in cache
+    if (emojiCanvasCache.has(cacheKey)) {
+        return emojiCanvasCache.get(cacheKey);
+    }
+    
+    // Create temporary canvases
+    const emojiCanvas = document.createElement('canvas');
+    const emojiCtx = emojiCanvas.getContext('2d');
+    
+    // First canvas: render and colorize the emoji
+    const emojiSize = Math.ceil(fontSize * 1.5);
+    emojiCanvas.width = emojiSize;
+    emojiCanvas.height = emojiSize;
+    
+    // Draw emoji in the center
+    emojiCtx.font = `${fontSize}px sans-serif`;
+    emojiCtx.textAlign = 'center';
+    emojiCtx.textBaseline = 'middle';
+    emojiCtx.fillText(emoji, emojiSize / 2, emojiSize / 2);
+    
+    // Get the image data and colorize
+    const imageData = emojiCtx.getImageData(0, 0, emojiSize, emojiSize);
+    const data = imageData.data;
+    
+    // Parse the hex color
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    
+    // Replace all non-transparent pixels with accent color
+    for (let i = 0; i < data.length; i += 4) {
+        const alpha = data[i + 3];
+        if (alpha > 0) {
+            data[i] = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+        }
+    }
+
+    // Put the colorized image data back
+    emojiCtx.putImageData(imageData, 0, 0);
+    
+    // Final canvas with glow
+    const glowRadius = 20;
+    const padding = glowRadius * 2;
+    const finalCanvas = document.createElement('canvas');
+    const finalCtx = finalCanvas.getContext('2d');
+    const finalSize = emojiSize + padding;
+    finalCanvas.width = finalSize;
+    finalCanvas.height = finalSize;
+    
+    const drawOffset = padding / 2;
+    
+    // First layer: strong outer glow
+    finalCtx.save();
+    finalCtx.shadowColor = color;
+    finalCtx.shadowBlur = 20;
+    finalCtx.shadowOffsetX = 0;
+    finalCtx.shadowOffsetY = 0;
+    finalCtx.drawImage(emojiCanvas, drawOffset, drawOffset);
+    finalCtx.restore();
+    
+    // Second layer: tighter inner glow for more intensity
+    finalCtx.save();
+    finalCtx.shadowColor = color;
+    finalCtx.shadowBlur = 10;
+    finalCtx.shadowOffsetX = 0;
+    finalCtx.shadowOffsetY = 0;
+    finalCtx.globalAlpha = 0.8;
+    finalCtx.drawImage(emojiCanvas, drawOffset, drawOffset);
+    finalCtx.restore();
+    
+    // Cache the final canvas
+    emojiCanvasCache.set(cacheKey, finalCanvas);
+    
+    return finalCanvas;
+}
+
 // Floating emoji class for gesture animations
 class FloatingEmoji {
     constructor(emoji, x, canvasWidth, canvasHeight) {
@@ -20,7 +105,7 @@ class FloatingEmoji {
         this.baseMaxLifetime = 2.5; // Total lifetime in seconds
         
         // Apply random variation of ±10% to create diversity (different for each parameter)
-        const randomVariation = () => 0.9 + Math.random() * 0.2; // Returns value between 0.9 and 1.1
+        const randomVariation = () => 0.8 + Math.random() * 0.4; // Returns value between 0.9 and 1.1
         
         this.speedPercent = this.baseSpeedPercent * randomVariation();
         this.waveAmplitudePercent = this.baseWaveAmplitudePercent * randomVariation();
@@ -31,6 +116,9 @@ class FloatingEmoji {
         // Fixed values (no variation)
         this.fontSize = 48;
         this.opacity = 1;
+        
+        // Create colored emoji canvas
+        this.coloredEmojiCanvas = createColoredEmoji(emoji, DrawingStyles.colors.accent, this.fontSize);
     }
     
     update() {
@@ -59,10 +147,13 @@ class FloatingEmoji {
     draw(ctx) {
         ctx.save();
         ctx.globalAlpha = this.opacity;
-        ctx.font = `${this.fontSize}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this.emoji, this.x, this.y);
+        
+        // Draw the colored emoji canvas centered at the position
+        const canvasSize = this.coloredEmojiCanvas.width;
+        const drawX = this.x - canvasSize / 2;
+        const drawY = this.y - canvasSize / 2;
+        ctx.drawImage(this.coloredEmojiCanvas, drawX, drawY);
+        
         ctx.restore();
     }
 }
