@@ -220,11 +220,18 @@ body {
 /* Controls */
 #controls {
     position: absolute;
-    bottom: 20px;
-    right: 20px;
+    bottom: 0;
+    right: 0;
+    padding: 20px;
     display: flex;
     gap: 10px;
     z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#controls:hover {
+    opacity: 1;
 }
 
 .control-btn {
