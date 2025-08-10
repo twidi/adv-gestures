@@ -28,10 +28,22 @@ const state = {
     pc: null,
     eventSource: null,
     streamInfo: null,
-    activeGestures: {
-        left: new Set(),
-        right: new Set(),
-        both: new Set()
+    gestures: {
+        active: {
+            left: new Set(),
+            right: new Set(),
+            both: new Set()
+        },
+        added: {
+            left: new Set(),
+            right: new Set(),
+            both: new Set()
+        },
+        removed: {
+            left: new Set(),
+            right: new Set(),
+            both: new Set()
+        }
     },
     appManager: null,
     handledAirTaps: new Set(),  // Set of IDs of air-taps that were handled
@@ -438,7 +450,7 @@ function processSnapshot(data) {
     
     // Pass data to application manager
     if (state.appManager) {
-        state.appManager.update(data);
+        state.appManager.update(data, state.gestures);
         state.appManager.draw();
     }
 }
@@ -548,8 +560,12 @@ function checkGestureChanges(data) {
     
     // Helper function to check and log changes
     const checkChanges = (category, label) => {
-        const added = [...currentGestures[category]].filter(g => !state.activeGestures[category].has(g));
-        const removed = [...state.activeGestures[category]].filter(g => !currentGestures[category].has(g));
+        const added = [...currentGestures[category]].filter(g => !state.gestures.active[category].has(g));
+        const removed = [...state.gestures.active[category]].filter(g => !currentGestures[category].has(g));
+        
+        // Update added and removed gestures in state
+        state.gestures.added[category] = new Set(added);
+        state.gestures.removed[category] = new Set(removed);
         
         if (added.length > 0) {
             const active = [...currentGestures[category]].join(', ');
@@ -563,7 +579,7 @@ function checkGestureChanges(data) {
             log('info', `[${label}] ${gesturesText} removed: ${removed.join(', ')} (active: ${active})`);
         }
         
-        state.activeGestures[category] = currentGestures[category];
+        state.gestures.active[category] = currentGestures[category];
     };
     
     // Check changes for each category

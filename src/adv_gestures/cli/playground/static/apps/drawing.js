@@ -39,8 +39,8 @@ function getSvgPathFromStroke(points, closed = true) {
 }
 
 export class DrawingApplication extends BaseApplication {
-    constructor() {
-        super('drawing');
+    constructor(applicationManager) {
+        super('drawing', applicationManager);
 
         // Drawing state
         this.isLeftHandAdjustingControl = false;
@@ -61,8 +61,6 @@ export class DrawingApplication extends BaseApplication {
         this.drawingPoint = null; // Last drawing point
         this.erasingCircle = null; // Circle for erasing
 
-        // Swipe tracking
-        this.lastSwipe = null; // Whether the current swipe gesture was used (null or $handedness-$mode-$direction)
         
         // Perfect Freehand options
         this.strokeOptions = {
@@ -95,9 +93,8 @@ export class DrawingApplication extends BaseApplication {
         // Control margins for angle detection
         this.ANGLE_MARGIN = 20; // degrees
         
-        // Drawing area margins
-        this.DRAWING_AREA_MARGIN_SIDES = 100; // pixels from left and right edges
-        this.DRAWING_AREA_MARGIN_TOP_BOTTOM = 40; // pixels from top and bottom edges
+        // Control height usage - only use the central portion of screen height for controls
+        this.CONTROL_HEIGHT_USAGE = 0.8; // Use 80% of height (ignore top/bottom 10%)
 
         
         // Unified cooldown system
@@ -143,9 +140,6 @@ export class DrawingApplication extends BaseApplication {
         ctx.restore();
     }
 
-    handHasGesture(hand, gesture) {
-        return hand && hand.gestures && gesture in hand.gestures && hand.gestures[gesture] > 0;
-    }
 
     getNormalizedYForFlatHand(hand, angleChecker) {
         if (!hand || hand.main_direction_angle === undefined) { return NaN; }
@@ -169,26 +163,33 @@ export class DrawingApplication extends BaseApplication {
 
         const scaledCentroid = this.scalePoint(hand.palm.centroid);
 
-        // Use drawing area margins as control bounds
-        const minY = this.DRAWING_AREA_MARGIN_TOP_BOTTOM;
-        const maxY = this.height - this.DRAWING_AREA_MARGIN_TOP_BOTTOM;
+        // Use only central portion of screen for controls
+        const marginRatio = (1 - this.CONTROL_HEIGHT_USAGE) / 2; // e.g., 0.1 for top and bottom
+        const minY = this.height * marginRatio;
+        const maxY = this.height * (1 - marginRatio);
         const clampedY = Math.max(minY, Math.min(maxY, scaledCentroid.y));
 
-        // Normalize within the drawing area (0-1)
+        // Normalize within the control zone (0-1)
         const normalizedY = (clampedY - minY) / (maxY - minY);
 
         // Return inverted Y (top = max, bottom = min)
         return 1 - normalizedY;
     }
 
-    update(handsData) {
-        super.update(handsData);
+    update(handsData, gestures) {
+        super.update(handsData, gestures);
+        
+        // Check for SNAP gesture to exit the app
+        if (this.isGestureJustAdded('SNAP') && !this.isGestureActive('CLOSED_FIST')) {
+            this.exit();
+            return;
+        }
         
         if (!this.handsData || !this.handsData.hands) return;
 
 
         // Check for CROSSED_FISTS to clear canvas
-        if (this.handHasGesture(this.handsData, 'CROSSED_FISTS')) {  // this gesture uses both hands so it's on the handsData object
+        if (this.isGestureJustAdded('CROSSED_FISTS', 'both')) {
             this.clearDrawing();
             return;
         }
@@ -213,40 +214,32 @@ export class DrawingApplication extends BaseApplication {
 
         
         // Phase 1: Detect CLOSED_FIST activation
-
-        let closedFistCount = 0;
-        for (const hand of this.handsData.hands) {
-            if (this.handHasGesture(hand, 'CLOSED_FIST')) {
-                closedFistCount++;
-                if (closedFistCount === 1) {
-                    this.activatorHand = hand;
-                    this.drawingHand = hand.handedness === 'LEFT' ? this.handsData.right : this.handsData.left;
-                } else {
-                    // Multiple CLOSED_FIST = no active drawing hand
-                    this.activatorHand = this.drawingHand = null;
-                }
-            }
+        const leftFist = this.isGestureActive('CLOSED_FIST', 'left');
+        const rightFist = this.isGestureActive('CLOSED_FIST', 'right');
+        
+        if (leftFist && !rightFist) {
+            this.activatorHand = this.handsData.left;
+            this.drawingHand = this.handsData.right;
+        } else if (rightFist && !leftFist) {
+            this.activatorHand = this.handsData.right;
+            this.drawingHand = this.handsData.left;
+        } else {
+            // No fist or multiple fists = no active drawing hand
+            this.activatorHand = null;
+            this.drawingHand = null;
         }
 
         // Check for SWIPE gesture when no activator hand
         if (!this.activatorHand) {
-            let swipeDetected = false;
-            for (const hand of this.handsData.hands) {
-                if (this.handHasGesture(hand, 'SWIPE')) {
-                    // Get swipe data (direction and mode)
-                    const swipeData = hand.gestures_data && hand.gestures_data.SWIPE;
-                    if (swipeData && swipeData.mode && swipeData.direction) {
-                        swipeDetected = true;
-                        const swipeType = `${hand.handedness}-${swipeData.mode}-${swipeData.direction}`;
-                        if (!this.lastSwipe || this.lastSwipe !== swipeType) {
-                            this.lastSwipe = swipeType; // Mark swipe as used (because gesture can last many frames)
-                            this.handleSwipe(swipeData.mode);
-                            return; // Exit early to avoid processing other gestures during swipe
-                        }
+            for (const handSide of ['left', 'right']) {
+                if (this.isGestureJustAdded('SWIPE', handSide)) {
+                    const swipeData = this.handsData[handSide]?.gestures_data?.SWIPE;
+                    if (swipeData && swipeData.mode) {
+                        this.handleSwipe(swipeData.mode);
+                        return; // Exit early to avoid processing other gestures during swipe
                     }
                 }
             }
-            if (!swipeDetected) { this.lastSwipe = null; } // Reset swipe used flag if no swipe detected
         }
 
         if (this.drawingHand) {
@@ -306,9 +299,6 @@ export class DrawingApplication extends BaseApplication {
     getDrawingPoint(hand) {
         if (!hand || !hand.is_visible || !hand.fingers || !hand.fingers.INDEX || !hand.fingers.INDEX.landmarks || hand.fingers.INDEX.landmarks.length < 4) return null;
         const scaledPoint = this.scalePoint(hand.fingers.INDEX.landmarks[3]);
-        if (!this.isPointInDrawingArea(scaledPoint)) {
-            return null; // Point is outside drawing area, no drawing
-        }
         return scaledPoint;
     }
 
@@ -344,17 +334,6 @@ export class DrawingApplication extends BaseApplication {
         // Scale to canvas coordinates
         const scaledCenter = this.scalePoint(center);
         const scaledRadius = this.scaleX(distance) / 2;
-
-        // Check if entire circle is outside drawing area
-        const circleCompletelyOutside = 
-            (scaledCenter.x + scaledRadius < this.DRAWING_AREA_MARGIN_SIDES) ||
-            (scaledCenter.x - scaledRadius > this.width - this.DRAWING_AREA_MARGIN_SIDES) ||
-            (scaledCenter.y + scaledRadius < this.DRAWING_AREA_MARGIN_TOP_BOTTOM) ||
-            (scaledCenter.y - scaledRadius > this.height - this.DRAWING_AREA_MARGIN_TOP_BOTTOM);
-
-        if (circleCompletelyOutside) {
-            return null; // Entire circle is outside drawing area, no erasing
-        }
 
         return {center: scaledCenter, radius: scaledRadius};
 
@@ -521,13 +500,6 @@ export class DrawingApplication extends BaseApplication {
         this.cooldownSource = source;
     }
     
-    isPointInDrawingArea(point) {
-        return point.x >= this.DRAWING_AREA_MARGIN_SIDES &&
-               point.x <= this.width - this.DRAWING_AREA_MARGIN_SIDES &&
-               point.y >= this.DRAWING_AREA_MARGIN_TOP_BOTTOM &&
-               point.y <= this.height - this.DRAWING_AREA_MARGIN_TOP_BOTTOM;
-    }
-    
     draw() {
         if (!this.ctx || !this.isActive) return;
         
@@ -536,9 +508,6 @@ export class DrawingApplication extends BaseApplication {
         
         // Draw all strokes
         this.drawStrokes();
-        
-        // Draw drawing area border
-        this.drawDrawingAreaBorder();
         
         // Draw UI elements
         this.drawIndicators();
@@ -776,27 +745,10 @@ export class DrawingApplication extends BaseApplication {
         ctx.restore();
     }
     
-    drawDrawingAreaBorder() {
-        const ctx = this.ctx;
-        const x = this.DRAWING_AREA_MARGIN_SIDES;
-        const y = this.DRAWING_AREA_MARGIN_TOP_BOTTOM;
-        const width = this.width - 2 * this.DRAWING_AREA_MARGIN_SIDES;
-        const height = this.height - 2 * this.DRAWING_AREA_MARGIN_TOP_BOTTOM;
-        
-        ctx.save();
-        ctx.strokeStyle = DrawingStyles.colors.accent;
-        ctx.lineWidth = 4;
-        ctx.setLineDash([10, 10]);
-        DP.roundedRect(ctx, x, y, width, height, 20);
-        ctx.stroke();
-        ctx.restore();
-    }
-    
     drawPointers(skipLeftHand = false, skipRightHand = false) {
         if (!this.showPointers || !this.ctx || !this.handsData) return;
-        skipLeftHand ||= this.drawHandPointer(this.handsData.left);
-        skipRightHand ||= this.drawHandPointer(this.handsData.right);
-        super.drawPointers(skipLeftHand, skipRightHand);
+        this.drawHandPointer(this.handsData.left);
+        this.drawHandPointer(this.handsData.right);
     }
     
     drawHandPointer(hand) {

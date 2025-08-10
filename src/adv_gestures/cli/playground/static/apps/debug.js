@@ -11,14 +11,24 @@ const FINGER_COLORS = [
 ];
 
 export class DebugApplication extends BaseApplication {
-    constructor() {
-        super('debug');
+    constructor(applicationManager) {
+        super('debug', applicationManager);
     }
     
     drawIconContent(ctx, size, isActive) {
         // Draw a D for Debug
         const color = DrawingStyles.colors.accent;
         DP.drawText(ctx, 'D', size/2, size/2 + 2, `bold ${size * 0.6}px`, color, 'center', 'middle');
+    }
+
+    update(handsData, gestures) {
+        super.update(handsData, gestures);
+        
+        // Check for SNAP gesture to exit the app
+        if (this.isGestureJustAdded('SNAP')) {
+            this.exit();
+            return;
+        }
     }
 
     draw() {

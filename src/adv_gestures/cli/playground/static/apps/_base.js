@@ -1,8 +1,9 @@
 import { DP, DrawingStyles } from '../drawing-primitives.js';
 
 export class BaseApplication {
-    constructor(name) {
+    constructor(name, applicationManager) {
         this.name = name;
+        this.applicationManager = applicationManager;
         this.canvas = null;
         this.ctx = null;
         this.isActive = false;
@@ -11,6 +12,7 @@ export class BaseApplication {
         this.showPointers = true;
         this.streamSize = null; // Will be {width, height} when stream info is available
         this.handsData = null;
+        this.gestures = {};
         this.scale = null; // Will be {x, y} when stream info and canvas are available
     }
 
@@ -87,11 +89,48 @@ export class BaseApplication {
         throw new Error(`${this.constructor.name} must implement drawIconContent()`);
     }
 
-    update(handsData) {
-        // Store handsData for future use
+    update(handsData, gestures) {
+        // Store handsData and gestures for future use
         this.handsData = handsData;
+        this.gestures = gestures;
 
         // Override in subclasses if needed for additional functionality
+    }
+
+    /**
+     * Check if a gesture is currently active
+     * @param {string} gestureName - Name of the gesture to check
+     * @param {string} category - Category to check: 'left', 'right', 'both' (default: checks all three)
+     * @returns {boolean} True if the gesture is active in the specified category
+     */
+    isGestureActive(gestureName, category) {
+        if (!this.gestures || !this.gestures.active) return false;
+        
+        if (!category) {
+            return this.gestures.active.left.has(gestureName) ||
+                   this.gestures.active.right.has(gestureName) ||
+                   this.gestures.active.both.has(gestureName);
+        }
+        
+        return this.gestures.active[category]?.has(gestureName) || false;
+    }
+
+    /**
+     * Check if a gesture was just added (triggered this frame)
+     * @param {string} gestureName - Name of the gesture to check
+     * @param {string} category - Category to check: 'left', 'right', 'both' (default: checks all three)
+     * @returns {boolean} True if the gesture was just added in the specified category
+     */
+    isGestureJustAdded(gestureName, category) {
+        if (!this.gestures || !this.gestures.added) return false;
+        
+        if (!category) {
+            return this.gestures.added.left.has(gestureName) ||
+                   this.gestures.added.right.has(gestureName) ||
+                   this.gestures.added.both.has(gestureName);
+        }
+        
+        return this.gestures.added[category]?.has(gestureName) || false;
     }
 
     draw() {
@@ -99,6 +138,15 @@ export class BaseApplication {
         // Override in subclasses
         // Clear canvas by default
         DP.clearCanvas(this.ctx);
+    }
+
+    /**
+     * Exit the current application and return to the default app
+     */
+    exit() {
+        if (this.applicationManager && this.applicationManager.defaultApp) {
+            this.applicationManager.switchToApp(this.applicationManager.defaultApp.name);
+        }
     }
 
     scaleX(value) {
