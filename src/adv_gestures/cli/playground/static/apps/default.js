@@ -1,6 +1,72 @@
 import { BaseApplication } from './_base.js';
 import { DP, DrawingStyles } from '../drawing-primitives.js';
 
+// Floating emoji class for gesture animations
+class FloatingEmoji {
+    constructor(emoji, x, canvasWidth, canvasHeight) {
+        this.emoji = emoji;
+        this.canvasWidth = canvasWidth;
+        this.canvasHeight = canvasHeight;
+        this.x = x;
+        this.y = canvasHeight; // Start from bottom
+        this.startX = x;
+        this.startTime = Date.now();
+        
+        // Base configuration values
+        this.baseSpeedPercent = 40; // % of canvas height per second
+        this.baseWaveAmplitudePercent = 5; // % of canvas width for horizontal wave amplitude
+        this.baseWaveFrequency = 0.5; // Number of complete sine waves per second
+        this.baseFadeStartTime = 1; // Start fading after x seconds
+        this.baseMaxLifetime = 2.5; // Total lifetime in seconds
+        
+        // Apply random variation of ±10% to create diversity (different for each parameter)
+        const randomVariation = () => 0.9 + Math.random() * 0.2; // Returns value between 0.9 and 1.1
+        
+        this.speedPercent = this.baseSpeedPercent * randomVariation();
+        this.waveAmplitudePercent = this.baseWaveAmplitudePercent * randomVariation();
+        this.waveFrequency = this.baseWaveFrequency * randomVariation();
+        this.fadeStartTime = this.baseFadeStartTime * randomVariation();
+        this.maxLifetime = this.baseMaxLifetime * randomVariation();
+        
+        // Fixed values (no variation)
+        this.fontSize = 48;
+        this.opacity = 1;
+    }
+    
+    update() {
+        const elapsedSeconds = (Date.now() - this.startTime) / 1000;
+        
+        // Calculate vertical position based on speed (% of canvas height per second)
+        const pixelsPerSecond = (this.speedPercent / 100) * this.canvasHeight;
+        this.y = this.canvasHeight - (pixelsPerSecond * elapsedSeconds);
+        
+        // Zigzag movement using sine wave
+        // waveFrequency = complete sine waves per second
+        // 2π radians = one complete wave, so multiply by 2π for full waves
+        const waveAmplitudePixels = (this.waveAmplitudePercent / 100) * this.canvasWidth;
+        this.x = this.startX + Math.sin(elapsedSeconds * this.waveFrequency * 2 * Math.PI) * waveAmplitudePixels;
+        
+        // Fade out near the end
+        if (elapsedSeconds > this.fadeStartTime) {
+            const fadeProgress = (elapsedSeconds - this.fadeStartTime) / (this.maxLifetime - this.fadeStartTime);
+            this.opacity = Math.max(0, 1 - fadeProgress);
+        }
+        
+        // Return false when lifetime exceeded or emoji is off screen
+        return elapsedSeconds < this.maxLifetime && this.y > -50;
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.opacity;
+        ctx.font = `${this.fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.emoji, this.x, this.y);
+        ctx.restore();
+    }
+}
+
 export class DefaultApplication extends BaseApplication {
     constructor(applicationManager) {
         super('default', applicationManager);
@@ -16,6 +82,35 @@ export class DefaultApplication extends BaseApplication {
         this.iconOpacity = 0; // Current opacity (0-1)
         this.targetIconOpacity = 0; // Target opacity to animate to
         this.opacityAnimationStart = null; // Timestamp when animation started
+        
+        // Emoji system properties
+        this.floatingEmojis = [];
+        this.activeGestures = new Set();
+        this.gestureSpawnTimers = new Map();
+        this.EMOJI_SPAWN_INTERVAL = 200; // Spawn new emoji every 500ms
+
+        // Gesture to emoji mapping with blocking configuration
+        this.gestureEmojiMap = {
+            // Single hand gestures
+            'CLOSED_FIST': { emoji: '✊' },
+            'POINTING_UP': { emoji: '☝️' },
+            'THUMB_DOWN': { emoji: '👎' },
+            'THUMB_UP': { emoji: '👍' },
+            'VICTORY': { emoji: '✌️' },
+            'LOVE': { emoji: '🤟' },
+            
+            'MIDDLE_FINGER': { emoji: '🖕' },
+            'SPOCK': { emoji: '🖖' },
+            'ROCK': { emoji: '🤘' },
+            'OK': { emoji: '👌' },
+            // 'STOP': { emoji: '✋' },
+            // 'GUN': { emoji: '🔫' },
+            'WAVE': { emoji: '👋', blocks: ['STOP'] },
+            'NO': { emoji: '🚫', blocks: ['POINTING_UP'] },
+            
+            // Two hands gestures
+            'CLAP': { emoji: '👏' },
+        };
     }
 
     activate() {
@@ -71,6 +166,9 @@ export class DefaultApplication extends BaseApplication {
         // Clear canvas
         DP.clearCanvas(this.ctx);
         
+        // Update and draw floating emojis
+        this.updateAndDrawEmojis();
+        
         // Update opacity animation
         this.updateOpacityAnimation();
         
@@ -92,17 +190,27 @@ export class DefaultApplication extends BaseApplication {
         super.update(handsData, gestures);
         
         // Check for SNAP gesture to toggle icons visibility
-        if (this.isGestureJustAdded('SNAP')) {
+        if (this.isGestureJustAdded('DOUBLE_SNAP')) {
             this.showIcons = !this.showIcons;
             this.showPointers = this.showIcons;
             
             // Start opacity animation
             this.targetIconOpacity = this.showIcons ? 1 : 0;
             this.opacityAnimationStart = Date.now();
+            
+            // If icons are now shown, clear all active emojis and timers
+            if (this.showIcons) {
+                this.clearAllEmojiTimers();
+                this.floatingEmojis = [];
+            }
+        }
+        
+        // Handle emoji spawning for tracked gestures (only when icons are hidden)
+        if (!this.showIcons) {
+            this.handleEmojiGestures(gestures);
         }
 
-
-        // Do nothing if icons are hidden
+        // Do nothing more if icons are hidden
         if (!this.showIcons) return;
         
         if (handsData.airTapData) {
@@ -165,5 +273,108 @@ export class DefaultApplication extends BaseApplication {
                 this.opacityAnimationStart = null;
             }
         }
+    }
+    
+    handleEmojiGestures(gestures) {
+        // Track currently active gestures that have emojis
+        const currentEmojiGestures = new Set();
+        
+        if (gestures && gestures.active) {
+            // Check all categories (left, right, both)
+            for (const category of ['left', 'right', 'both']) {
+                if (gestures.active[category]) {
+                    for (const gesture of gestures.active[category]) {
+                        if (this.gestureEmojiMap[gesture]) {
+                            currentEmojiGestures.add(gesture);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Get currently blocked gestures based on active emoji gestures
+        const blockedGestures = this.getBlockedGestures();
+        
+        // Start spawning for newly active gestures (if not blocked)
+        for (const gesture of currentEmojiGestures) {
+            if (!this.activeGestures.has(gesture) && !blockedGestures.has(gesture)) {
+                // New gesture started and not blocked
+                this.activeGestures.add(gesture);
+                this.spawnEmoji(gesture); // Spawn first emoji immediately
+                
+                // Set up periodic spawning
+                this.gestureSpawnTimers.set(gesture, setInterval(() => {
+                    // Only spawn if icons are still hidden and gesture is not blocked
+                    if (!this.showIcons && !this.getBlockedGestures().has(gesture)) {
+                        this.spawnEmoji(gesture);
+                    }
+                }, this.EMOJI_SPAWN_INTERVAL));
+            }
+        }
+        
+        // Stop spawning for gestures that are no longer active or are now blocked
+        for (const gesture of this.activeGestures) {
+            if (!currentEmojiGestures.has(gesture) || blockedGestures.has(gesture)) {
+                // Gesture ended or is now blocked
+                this.activeGestures.delete(gesture);
+                
+                // Clear the spawn timer
+                const timer = this.gestureSpawnTimers.get(gesture);
+                if (timer) {
+                    clearInterval(timer);
+                    this.gestureSpawnTimers.delete(gesture);
+                }
+            }
+        }
+    }
+    
+    getBlockedGestures() {
+        const blocked = new Set();
+        
+        // Check which gestures are currently blocking others via active emojis
+        for (const emoji of this.floatingEmojis) {
+            // Find which gesture this emoji belongs to
+            for (const [gestureName, config] of Object.entries(this.gestureEmojiMap)) {
+                if (config.emoji === emoji.emoji && config.blocks) {
+                    // Add all gestures blocked by this one
+                    for (const blockedGesture of config.blocks) {
+                        blocked.add(blockedGesture);
+                    }
+                }
+            }
+        }
+        
+        return blocked;
+    }
+    
+    spawnEmoji(gesture) {
+        if (!this.width || !this.height) return;
+        
+        const config = this.gestureEmojiMap[gesture];
+        if (!config || !config.emoji) return;
+        
+        // Random x position in the middle 60% of the screen
+        const x = this.width * 0.2 + Math.random() * this.width * 0.6;
+        
+        this.floatingEmojis.push(new FloatingEmoji(config.emoji, x, this.width, this.height));
+    }
+    
+    updateAndDrawEmojis() {
+        // Update emojis and remove dead ones
+        this.floatingEmojis = this.floatingEmojis.filter(emoji => emoji.update());
+        
+        // Draw all emojis
+        for (const emoji of this.floatingEmojis) {
+            emoji.draw(this.ctx);
+        }
+    }
+    
+    clearAllEmojiTimers() {
+        // Clear all spawn timers
+        for (const timer of this.gestureSpawnTimers.values()) {
+            clearInterval(timer);
+        }
+        this.gestureSpawnTimers.clear();
+        this.activeGestures.clear();
     }
 }
