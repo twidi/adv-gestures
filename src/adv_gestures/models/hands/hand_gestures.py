@@ -182,7 +182,14 @@ class OkDetector(HandGesturesDetector):
         pinky: PinkyFinger,
         detected: GestureWeights,
     ) -> bool:
-        return index.tip_on_thumb and not middle.is_fully_bent and not ring.is_fully_bent and not pinky.is_fully_bent
+        return (
+            index.tip_on_thumb
+            and not middle.is_fully_bent
+            and not ring.is_fully_bent
+            and not pinky.is_fully_bent
+            and (thumb_convergence_score := index.thumb_convergence_score) is not None
+            and thumb_convergence_score >= 0.7
+        )
 
 
 class StopDetector(HandGesturesDetector):
@@ -620,6 +627,7 @@ class SnapDetector(HandGesturesDetector):
             and not self.index.is_fully_bent
             and not self.index.is_nearly_straight_or_straight
             and self.index.tip_on_thumb
+            and not self.middle.tip_on_thumb
         )
 
     def matches(

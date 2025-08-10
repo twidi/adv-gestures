@@ -57,6 +57,7 @@ class Finger(SmoothedBase, Generic[FingerConfigType]):
         "fold_angle",
         "tip_direction",
         "tip_direction_angle",
+        "thumb_convergence_score",
         "tip_on_thumb",
         "touching_adjacent_fingers",
     )
@@ -523,13 +524,16 @@ class OtherFinger(Finger[FingerConfig]):
 
     straightness_score = smoothed_float(_calc_straightness_score)
 
-    def _calc_thumb_convergence_score(self, thumb: Thumb) -> float | None:
+    @cached_property
+    def thumb_convergence_score(self) -> float | None:
         """Calculate convergence score based on the intersection angle of finger and thumb rays.
 
         Returns:
         - None if rays diverge (fingers pointing away from each other)
         - 0-1 score based on intersection angle (0=small angle, 1=large angle)
         """
+        thumb = self.hand.thumb
+
         # Get finger's PIP-TIP vector (ray direction)
         finger_pip = self.landmarks[1]  # PIP is at index 1
         finger_tip = self.landmarks[3]  # TIP is at index 3
@@ -597,17 +601,26 @@ class OtherFinger(Finger[FingerConfig]):
         if thumb_tip is None or finger_tip is None:
             return False
 
-        # Calculate convergence score for adaptive threshold
-        thumb_convergence_score = self._calc_thumb_convergence_score(thumb)
-
-        # If rays diverge, fingers can't be touching
-        if thumb_convergence_score is None:
-            return False
-
         # Calculate distance (coordinates already include aspect ratio correction)
         dx = finger_tip[0] - thumb_tip[0]
         dy = finger_tip[1] - thumb_tip[1]
         distance = sqrt(dx**2 + dy**2)
+
+        # Check that finger tip is closer to thumb tip than to thumb IP
+        thumb_ip = thumb.landmarks[2]
+        dx_ip = finger_tip[0] - thumb_ip[0]
+        dy_ip = finger_tip[1] - thumb_ip[1]
+        distance_to_ip = sqrt(dx_ip**2 + dy_ip**2)
+
+        if distance >= distance_to_ip:
+            return False
+
+        # Calculate convergence score for adaptive threshold
+        thumb_convergence_score = self.thumb_convergence_score
+
+        # If rays diverge, fingers can't be touching
+        if thumb_convergence_score is None:
+            return False
 
         # Compare distance to a relative threshold based on current finger and thumb segment lengths
         segments = []
@@ -627,7 +640,7 @@ class OtherFinger(Finger[FingerConfig]):
         # segment_mean = sum(segments) / len(segments)
         # relative_threshold_mean = self.finger_config.thumb_distance_relative_threshold * (1 + factor) * segment_mean
 
-        # if self.index == FingerIndex.INDEX and not (distance < relative_threshold):
+        # if self.index == FingerIndex.INDEX:  # and not (distance < relative_threshold):
         #     print(
         #         f"[{time():.2f}] D={distance:5.2f}, segments=(t={segments[0]:5.2f}, i={segments[1]:5.2f}), "
         #         f"S={thumb_convergence_score:4.2f}, F={factor:4.2f}, T={relative_threshold:6.2f} "
