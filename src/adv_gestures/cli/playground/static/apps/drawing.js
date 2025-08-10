@@ -179,8 +179,8 @@ export class DrawingApplication extends BaseApplication {
     update(handsData, gestures) {
         super.update(handsData, gestures);
         
-        // Check for SNAP gesture to exit the app
-        if (this.isGestureJustAdded('SNAP') && !this.isGestureActive('CLOSED_FIST')) {
+        // Check for DOUBLE_SNAP gesture to exit the app
+        if (this.isGestureJustAdded('DOUBLE_SNAP') && !this.isGestureActive('CLOSED_FIST')) {
             this.exit();
             return;
         }

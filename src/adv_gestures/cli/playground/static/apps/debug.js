@@ -24,8 +24,8 @@ export class DebugApplication extends BaseApplication {
     update(handsData, gestures) {
         super.update(handsData, gestures);
         
-        // Check for SNAP gesture to exit the app
-        if (this.isGestureJustAdded('SNAP')) {
+        // Check for DOUBLE_SNAP gesture to exit the app
+        if (this.isGestureJustAdded('DOUBLE_SNAP')) {
             this.exit();
             return;
         }
