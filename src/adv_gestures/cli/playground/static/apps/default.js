@@ -10,6 +10,12 @@ export class DefaultApplication extends BaseApplication {
         this.iconRects = new Map(); // Store icon rectangles for click detection
         this.showIcons = false; // Icons hidden by default
         this.showPointers = this.showIcons; // Only show pointers if icons are visible
+        
+        // Animation properties
+        this.ICON_FADE_DURATION = 500; // Half second animation duration
+        this.iconOpacity = 0; // Current opacity (0-1)
+        this.targetIconOpacity = 0; // Target opacity to animate to
+        this.opacityAnimationStart = null; // Timestamp when animation started
     }
 
     activate() {
@@ -65,12 +71,20 @@ export class DefaultApplication extends BaseApplication {
         // Clear canvas
         DP.clearCanvas(this.ctx);
         
-        // Draw application icons in the center only if showIcons is true
-        if (this.showIcons) {
+        // Update opacity animation
+        this.updateOpacityAnimation();
+        
+        // Draw application icons with animated opacity
+        if (this.iconOpacity > 0) {
+            this.ctx.save();
+            this.ctx.globalAlpha = this.iconOpacity;
+            
             for (const [app, rect] of this.iconRects.entries()) {
                 const isActive = app === this.activeApp;
                 app.drawIcon(this.ctx, rect.x, rect.y, this.iconSize, isActive);
             }
+            
+            this.ctx.restore();
         }
     }
     
@@ -81,6 +95,10 @@ export class DefaultApplication extends BaseApplication {
         if (this.isGestureJustAdded('SNAP')) {
             this.showIcons = !this.showIcons;
             this.showPointers = this.showIcons;
+            
+            // Start opacity animation
+            this.targetIconOpacity = this.showIcons ? 1 : 0;
+            this.opacityAnimationStart = Date.now();
         }
 
 
@@ -127,5 +145,25 @@ export class DefaultApplication extends BaseApplication {
     resize(width, height) {
         super.resize(width, height);
         this.updateIconRects();
+    }
+    
+    updateOpacityAnimation() {
+        // Skip if already at target
+        if (this.iconOpacity === this.targetIconOpacity) return;
+        
+        if (this.opacityAnimationStart) {
+            const elapsed = Date.now() - this.opacityAnimationStart;
+            const progress = Math.min(elapsed / this.ICON_FADE_DURATION, 1);
+            
+            // Linear interpolation
+            const startOpacity = this.targetIconOpacity === 1 ? 0 : 1;
+            this.iconOpacity = startOpacity + (this.targetIconOpacity - startOpacity) * progress;
+            
+            // Animation complete
+            if (progress >= 1) {
+                this.iconOpacity = this.targetIconOpacity;
+                this.opacityAnimationStart = null;
+            }
+        }
     }
 }
