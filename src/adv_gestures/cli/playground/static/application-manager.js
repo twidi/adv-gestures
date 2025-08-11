@@ -3,6 +3,7 @@ import { DefaultApplication } from './apps/default.js';
 import { DebugApplication } from './apps/debug.js';
 import { DrawingApplication } from './apps/drawing.js';
 import { ThereminApplication } from './apps/theremin.js';
+import { PongApplication } from './apps/pong.js';
 
 export class ApplicationManager {
     constructor(canvasContainer, handledAirTaps) {
@@ -30,6 +31,9 @@ export class ApplicationManager {
         // Create and register other applications
         const drawingApp = new DrawingApplication(this);
         this.applications.set(drawingApp.name, drawingApp);
+
+        const pongApp = new PongApplication(this);
+        this.applications.set(pongApp.name, pongApp);
 
         const thereminApp = new ThereminApplication(this);
         this.applications.set(thereminApp.name, thereminApp);
