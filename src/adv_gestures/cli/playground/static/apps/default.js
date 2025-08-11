@@ -113,6 +113,9 @@ class FloatingEmoji {
         this.fadeStartTime = this.baseFadeStartTime * randomVariation();
         this.maxLifetime = this.baseMaxLifetime * randomVariation();
         
+        // Random starting phase in the wave (0 to 2π)
+        this.wavePhase = Math.random() * 2 * Math.PI;
+        
         // Fixed values (no variation)
         this.fontSize = 48;
         this.opacity = 1;
@@ -131,8 +134,9 @@ class FloatingEmoji {
         // Zigzag movement using sine wave
         // waveFrequency = complete sine waves per second
         // 2π radians = one complete wave, so multiply by 2π for full waves
+        // Add wavePhase to start at a random point in the wave
         const waveAmplitudePixels = (this.waveAmplitudePercent / 100) * this.canvasWidth;
-        this.x = this.startX + Math.sin(elapsedSeconds * this.waveFrequency * 2 * Math.PI) * waveAmplitudePixels;
+        this.x = this.startX + Math.sin(this.wavePhase + elapsedSeconds * this.waveFrequency * 2 * Math.PI) * waveAmplitudePixels;
         
         // Fade out near the end
         if (elapsedSeconds > this.fadeStartTime) {
