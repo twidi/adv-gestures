@@ -139,11 +139,8 @@ export class ThereminApplication extends BaseApplication {
     }
     
     update(handsData, gestures) {
-        super.update(handsData, gestures);
-
-        // Check for DOUBLE_SNAP gesture to exit the app
-        if (this.isGestureJustAdded('DOUBLE_SNAP')) {
-            this.exit();
+        // Call parent update and check if we should continue
+        if (!super.update(handsData, gestures)) {
             return;
         }
 

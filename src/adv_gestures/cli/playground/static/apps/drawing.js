@@ -160,12 +160,18 @@ export class DrawingApplication extends BaseApplication {
         return 1 - normalizedY;
     }
 
+    /**
+     * Override hasExitMatch to add CLOSED_FIST check
+     * @returns {boolean} True if the app should exit
+     */
+    hasExitMatch() {
+        // Only exit if not in CLOSED_FIST gesture
+        return super.hasExitMatch() && !this.isGestureActive('CLOSED_FIST');
+    }
+
     update(handsData, gestures) {
-        super.update(handsData, gestures);
-        
-        // Check for DOUBLE_SNAP gesture to exit the app
-        if (this.isGestureJustAdded('DOUBLE_SNAP') && !this.isGestureActive('CLOSED_FIST')) {
-            this.exit();
+        // Call parent update and check if we should continue
+        if (!super.update(handsData, gestures)) {
             return;
         }
         

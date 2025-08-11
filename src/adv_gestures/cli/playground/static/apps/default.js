@@ -277,11 +277,20 @@ export class DefaultApplication extends BaseApplication {
         }
     }
     
+    /**
+     * Override shouldExit - default app never exits
+     * @returns {boolean} Always false for default app
+     */
+    shouldExit() {
+        return false; // Default app never exits
+    }
+
     update(handsData, gestures) {
+        // Call parent update - will always continue since shouldExit returns false
         super.update(handsData, gestures);
         
-        // Check for SNAP gesture to toggle icons visibility
-        if (this.isGestureJustAdded('DOUBLE_SNAP')) {
+        // We use the exit gesture to toggle icons
+        if (this.hasExitMatch()) {
             this.showIcons = !this.showIcons;
             this.showPointers = this.showIcons;
             

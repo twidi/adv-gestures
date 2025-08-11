@@ -129,12 +129,59 @@ export class BaseApplication {
         // Default implementation - do nothing if no SVG path is set
     }
 
+    /**
+     * Check if we have a match for the exit gesture
+     * @returns {boolean} True if the app should exit
+     */
+    hasExitMatch() {
+        // Define the exit zone ranges (normalized 0-1)
+        const horizontalRange = [0.75, 1.0];  // Right 25% of screen
+        const verticalRange = [0.0, 0.33];    // Top 33% of screen
+        
+        // Check if the hand data is available
+        if (!this.handsData || !this.streamSize) {
+            return false;
+        }
+        
+        // Check each hand
+        for (const [handedness, hand] of [['left', this.handsData.left], ['right', this.handsData.right]]) {
+            // Check if DOUBLE_SNAP was just added on this hand
+            if (!this.isGestureJustAdded('DOUBLE_SNAP', handedness)) {
+                continue;
+            }
+            
+            // Check if this hand is in the exit zone
+            if (hand && hand.palm && hand.palm.centroid) {
+                const normalizedX = hand.palm.centroid.x / this.streamSize.width;
+                const normalizedY = hand.palm.centroid.y / this.streamSize.height;
+
+                if (normalizedX >= horizontalRange[0] && normalizedX <= horizontalRange[1] &&
+                    normalizedY >= verticalRange[0] && normalizedY <= verticalRange[1]) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    shouldExit() {
+        return this.hasExitMatch();
+    }
+
     update(handsData, gestures) {
         // Store handsData and gestures for future use
         this.handsData = handsData;
         this.gestures = gestures;
 
+        // Check if we should exit
+        if (this.shouldExit()) {
+            this.exit();
+            return false; // Indicate that we should stop updating
+        }
+
         // Override in subclasses if needed for additional functionality
+        return true; // Indicate that we should continue updating
     }
 
     /**
