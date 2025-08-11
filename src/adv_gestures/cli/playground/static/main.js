@@ -260,15 +260,31 @@ async function selectCamera(deviceId) {
         }
         
         // Get new stream with constraints
+        // Request high resolution but let camera decide aspect ratio (portrait or landscape)
         const constraints = {
             video: {
                 deviceId: deviceId ? { exact: deviceId } : undefined,
-                width: { ideal: 1280, max: 1280 },
-                height: { ideal: 1280, max: 1280 }
+                width: { min: 720, ideal: 1280 },
+                height: { min: 720, ideal: 1280 },
+                // Frame rate - ideal and max at 30fps
+                frameRate: { ideal: 30, max: 30 }
             }
         };
         
         state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // Log the actual resolution obtained
+        const videoTrack = state.stream.getVideoTracks()[0];
+        if (videoTrack) {
+            const settings = videoTrack.getSettings();
+            log('info', `Camera resolution: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
+            
+            // Listen for track ended event
+            videoTrack.addEventListener('ended', () => {
+                log('error', 'Video track ended unexpectedly');
+            });
+        }
+        
         return state.stream;
     } catch (error) {
         log('error', `Failed to access camera: ${error.message}`);
@@ -353,13 +369,36 @@ async function setupWebRTC() {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         });
         
-        // Add video track
+        // Add video track with specific encoding parameters to prevent resolution changes
         state.stream.getTracks().forEach(track => {
-            state.pc.addTrack(track, state.stream);
+            const sender = state.pc.addTrack(track, state.stream);
+            
+            // If it's a video track, set encoding parameters to prevent resolution adaptation
+            if (track.kind === 'video') {
+                const params = sender.getParameters();
+                if (!params.encodings) {
+                    params.encodings = [{}];
+                }
+                // Disable automatic scaling and set consistent parameters
+                params.encodings[0].scaleResolutionDownBy = 1.0;  // No downscaling
+                params.encodings[0].maxFramerate = 30;  // Consistent framerate
+                // Set degradationPreference to maintain resolution over framerate
+                params.degradationPreference = 'maintain-resolution';
+                
+                // Note: setParameters might not be supported by all browsers
+                if (sender.setParameters) {
+                    sender.setParameters(params).catch(err => {
+                        log('warning', `Could not set video encoding parameters: ${err.message}`);
+                    });
+                }
+            }
         });
         
-        // Create offer
-        const offer = await state.pc.createOffer();
+        // Create offer with specific video constraints
+        const offer = await state.pc.createOffer({
+            offerToReceiveVideo: false,  // We're only sending, not receiving
+            offerToReceiveAudio: false
+        });
         await state.pc.setLocalDescription(offer);
         
         // Send offer to server
@@ -459,12 +498,25 @@ function processSnapshot(data) {
 
     data = enhanceData(data);
 
-    // Store stream info
+    // Store stream info and check for resolution changes
     const hadStreamInfo = !!state.streamInfo;
+    const previousStreamInfo = state.streamInfo;
     state.streamInfo = data.stream_info;
+
+    // Check if resolution changed
+    if (hadStreamInfo && previousStreamInfo && state.streamInfo) {
+        if (previousStreamInfo.width !== state.streamInfo.width || 
+            previousStreamInfo.height !== state.streamInfo.height) {
+            log('warning', `Resolution changed: ${previousStreamInfo.width}x${previousStreamInfo.height} → ${state.streamInfo.width}x${state.streamInfo.height}`);
+            updateCanvasSize();
+        }
+    }
 
     // Only update canvas size on first stream info
     if (!hadStreamInfo) {
+        if (state.streamInfo) {
+            log('info', `Stream resolution: ${state.streamInfo.width}x${state.streamInfo.height}`);
+        }
         updateCanvasSize();
     }
 
