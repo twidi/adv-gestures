@@ -189,3 +189,12 @@ The user may use voice dictation or write in a way that is not grammatically cor
     standard naming convention for the specific programming language (snake_case for Python, camelCase for JavaScript, etc.)
   - When saying "type", speaking about fingers, it may refer to the finger tip
   - The user may say the french world "trou" (or "trous") which is "hole" in English, but sounds like "true" in English. In this case, it refers to the `true` boolean value.
+
+- When you create a new application, it must always be a single JavaScript file placed in `src/adv_gestures/cli/playground/static/apps` (imported in `src/adv_gestures/cli/playground/static/index.html` and and declared in `src/adv_gestures/cli/playground/static/application-manager.js`)
+
+## Font Awesome Icons
+
+- When using Font Awesome icons, always retrieve the actual SVG from the official source, do not invent or guess the SVG
+- The SVG can be found at: `https://site-assets.fontawesome.com/releases/v7.0.0/svgs-full/regular/{icon name}.svg`. Urls work for all icons, content is no truncated. If you can't find an icon, ask which one to use.
+- This applies to all icons used in new playground applications
+- NEVER invent SVG paths except if asked so. 
