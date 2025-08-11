@@ -2,6 +2,7 @@ import { DP, DrawingStyles } from './drawing-primitives.js';
 import { DefaultApplication } from './apps/default.js';
 import { DebugApplication } from './apps/debug.js';
 import { DrawingApplication } from './apps/drawing.js';
+import { ThereminApplication } from './apps/theremin.js';
 
 export class ApplicationManager {
     constructor(canvasContainer, handledAirTaps) {
@@ -27,12 +28,15 @@ export class ApplicationManager {
         this.activeApp = defaultApp;
 
         // Create and register other applications
-
-        const debugApp = new DebugApplication(this);
-        this.applications.set(debugApp.name, debugApp);
-
         const drawingApp = new DrawingApplication(this);
         this.applications.set(drawingApp.name, drawingApp);
+
+        const thereminApp = new ThereminApplication(this);
+        this.applications.set(thereminApp.name, thereminApp);
+
+        // This one should stay the last one
+        const debugApp = new DebugApplication(this);
+        this.applications.set(debugApp.name, debugApp);
     }
 
     createCanvases(width, height) {
