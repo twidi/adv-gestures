@@ -11,8 +11,12 @@ export class ThereminApplication extends BaseApplication {
 
         // Audio context and nodes
         this.audioContext = null;
-        this.oscillator = null;
+        this.oscillator1 = null;
+        this.oscillator2 = null;
         this.gainNode = null;
+        this.filter = null;
+        this.vibrato = null;
+        this.vibratoGain = null;
         this.isPlaying = false;
         
         // Frequency range (in Hz) - 4 full octaves from C2 to C6
@@ -63,21 +67,55 @@ export class ThereminApplication extends BaseApplication {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
-            // Create oscillator
-            this.oscillator = this.audioContext.createOscillator();
-            this.oscillator.type = 'sine'; // Classic theremin sound
-            this.oscillator.frequency.value = this.minFreq;
+            // Create two oscillators for a richer sound
+            this.oscillator1 = this.audioContext.createOscillator();
+            this.oscillator1.type = 'sine'; // Main tone
+            this.oscillator1.frequency.value = this.minFreq;
+            
+            this.oscillator2 = this.audioContext.createOscillator();
+            this.oscillator2.type = 'triangle'; // Adds warmth
+            this.oscillator2.frequency.value = this.minFreq;
+            
+            // Create vibrato (low frequency oscillator for pitch modulation)
+            this.vibrato = this.audioContext.createOscillator();
+            this.vibrato.frequency.value = 5; // 5 Hz vibrato
+            this.vibrato.type = 'sine';
+            
+            this.vibratoGain = this.audioContext.createGain();
+            this.vibratoGain.gain.value = 3; // Subtle vibrato depth (±3 Hz)
+            
+            // Create filter for tone shaping (classic theremin warmth)
+            this.filter = this.audioContext.createBiquadFilter();
+            this.filter.type = 'lowpass';
+            this.filter.frequency.value = 2000; // Cut harsh high frequencies
+            this.filter.Q.value = 0.5;
             
             // Create gain node for volume control
             this.gainNode = this.audioContext.createGain();
             this.gainNode.gain.value = 0;
             
-            // Connect the audio graph
-            this.oscillator.connect(this.gainNode);
+            // Connect vibrato to oscillator frequencies
+            this.vibrato.connect(this.vibratoGain);
+            this.vibratoGain.connect(this.oscillator1.frequency);
+            this.vibratoGain.connect(this.oscillator2.frequency);
+            
+            // Mix oscillators through filter to gain
+            this.oscillator1.connect(this.filter);
+            this.oscillator2.connect(this.filter);
+            this.filter.connect(this.gainNode);
             this.gainNode.connect(this.audioContext.destination);
             
-            // Start the oscillator
-            this.oscillator.start();
+            // Adjust oscillator 2 volume to be slightly quieter
+            const osc2Gain = this.audioContext.createGain();
+            osc2Gain.gain.value = 0.3;
+            this.oscillator2.disconnect();
+            this.oscillator2.connect(osc2Gain);
+            osc2Gain.connect(this.filter);
+            
+            // Start all oscillators
+            this.oscillator1.start();
+            this.oscillator2.start();
+            this.vibrato.start();
             this.isPlaying = true;
         } catch (error) {
             console.error('Failed to initialize audio:', error);
@@ -85,9 +123,17 @@ export class ThereminApplication extends BaseApplication {
     }
     
     stopAudio() {
-        if (this.oscillator) {
-            this.oscillator.stop();
-            this.oscillator = null;
+        if (this.oscillator1) {
+            this.oscillator1.stop();
+            this.oscillator1 = null;
+        }
+        if (this.oscillator2) {
+            this.oscillator2.stop();
+            this.oscillator2 = null;
+        }
+        if (this.vibrato) {
+            this.vibrato.stop();
+            this.vibrato = null;
         }
         this.isPlaying = false;
     }
@@ -174,12 +220,26 @@ export class ThereminApplication extends BaseApplication {
         this.currentVolume += (this.targetVolume - this.currentVolume) * this.smoothingFactor;
         
         // Apply to audio nodes with exponential ramping for smooth transitions
-        if (this.oscillator && this.gainNode) {
+        if (this.oscillator1 && this.oscillator2 && this.gainNode && this.filter) {
             const rampTime = this.audioContext.currentTime + 0.05; // 50ms ramp
             
             if (this.currentFreq > 0) {
-                this.oscillator.frequency.exponentialRampToValueAtTime(
+                // Set main frequencies
+                this.oscillator1.frequency.exponentialRampToValueAtTime(
                     Math.max(this.currentFreq, 20), // Avoid 0 frequency
+                    rampTime
+                );
+                
+                // Second oscillator slightly detuned for richness
+                this.oscillator2.frequency.exponentialRampToValueAtTime(
+                    Math.max(this.currentFreq * 1.005, 20), // Slight detune
+                    rampTime
+                );
+                
+                // Adjust filter cutoff based on frequency (brighter for higher notes)
+                const filterFreq = Math.min(this.currentFreq * 4 + 500, 4000);
+                this.filter.frequency.exponentialRampToValueAtTime(
+                    filterFreq,
                     rampTime
                 );
             }
@@ -364,27 +424,48 @@ export class ThereminApplication extends BaseApplication {
     }
     
     drawWaveform() {
-        if (this.waveformPoints.length < 2) return;
+        if (this.currentVolume < 0.01) return;
         
         const ctx = this.ctx;
         const centerY = this.height / 2;
-        const maxAmplitude = this.height * 0.3;
+        const maxAmplitude = this.height * 0.25;
         
         ctx.save();
         ctx.strokeStyle = DrawingStyles.colors.accent;
         ctx.lineWidth = 2;
         
-        // Draw oscillating waveform based on frequency and volume
+        // Draw complex waveform that represents our actual sound
         ctx.beginPath();
-        const now = Date.now();
+        const now = Date.now() * 0.001; // Convert to seconds
+        const samplesPerPixel = 2;
         
-        for (let x = 0; x < this.width; x += 2) {
-            const point = this.waveformPoints[this.waveformPoints.length - 1];
-            if (!point) continue;
+        for (let x = 0; x < this.width; x += samplesPerPixel) {
+            // Time offset for this x position (creates traveling wave effect)
+            const timeOffset = x / this.width * 0.01;
+            const t = now - timeOffset;
             
-            // Create a sine wave based on current frequency
-            const phase = (x / this.width) * Math.PI * 4 + (now * point.freq * 0.001);
-            const y = centerY + Math.sin(phase) * maxAmplitude * point.volume;
+            // Main oscillator (sine wave)
+            const mainPhase = t * this.currentFreq * 2 * Math.PI;
+            const mainWave = Math.sin(mainPhase);
+            
+            // Second oscillator (triangle wave simulation, slightly detuned)
+            const detunedFreq = this.currentFreq * 1.005;
+            const trianglePhase = t * detunedFreq * 2 * Math.PI;
+            // Approximate triangle wave with harmonics
+            const triangleWave = (Math.sin(trianglePhase) * 0.8 - 
+                                 Math.sin(trianglePhase * 3) / 9 + 
+                                 Math.sin(trianglePhase * 5) / 25) * 0.3;
+            
+            // Vibrato effect (modulates the combined wave)
+            const vibratoPhase = t * 5 * 2 * Math.PI; // 5 Hz vibrato
+            const vibratoEffect = 1 + Math.sin(vibratoPhase) * 0.01; // ±1% modulation
+            
+            // Combine waves (main + triangle with vibrato)
+            const combinedWave = (mainWave + triangleWave) * vibratoEffect;
+            
+            // Apply amplitude based on current volume
+            const amplitude = maxAmplitude * this.currentVolume * 2;
+            const y = centerY + combinedWave * amplitude;
             
             if (x === 0) {
                 ctx.moveTo(x, y);
@@ -393,8 +474,15 @@ export class ThereminApplication extends BaseApplication {
             }
         }
         
-        ctx.globalAlpha = this.currentVolume * 2; // Fade with volume
+        // Add subtle glow effect
+        ctx.globalAlpha = Math.min(this.currentVolume * 2, 0.8);
         ctx.stroke();
+        
+        // Second pass with slight blur for glow
+        ctx.globalAlpha = Math.min(this.currentVolume, 0.3);
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        
         ctx.restore();
     }
     
