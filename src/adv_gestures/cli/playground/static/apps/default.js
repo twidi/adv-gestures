@@ -88,13 +88,14 @@ function createColoredEmoji(emoji, color, fontSize) {
 
 // Floating emoji class for gesture animations
 class FloatingEmoji {
-    constructor(emoji, x, canvasWidth, canvasHeight) {
+    constructor(emoji, x, y, canvasWidth, canvasHeight) {
         this.emoji = emoji;
         this.canvasWidth = canvasWidth;
         this.canvasHeight = canvasHeight;
         this.x = x;
-        this.y = canvasHeight; // Start from bottom
+        this.y = y;
         this.startX = x;
+        this.startY = y;
         this.startTime = Date.now();
         
         // Base configuration values
@@ -128,8 +129,9 @@ class FloatingEmoji {
         const elapsedSeconds = (Date.now() - this.startTime) / 1000;
         
         // Calculate vertical position based on speed (% of canvas height per second)
+        // Moving upward from start position
         const pixelsPerSecond = (this.speedPercent / 100) * this.canvasHeight;
-        this.y = this.canvasHeight - (pixelsPerSecond * elapsedSeconds);
+        this.y = this.startY - (pixelsPerSecond * elapsedSeconds);
         
         // Zigzag movement using sine wave
         // waveFrequency = complete sine waves per second
@@ -180,9 +182,8 @@ export class DefaultApplication extends BaseApplication {
         
         // Emoji system properties
         this.floatingEmojis = [];
-        this.activeGestures = new Set();
-        this.gestureSpawnTimers = new Map();
-        this.EMOJI_SPAWN_INTERVAL = 200; // Spawn new emoji every 500ms
+        this.activeGestureTimers = new Map(); // Map of "hand-gesture" -> timer
+        this.EMOJI_SPAWN_INTERVAL = 200; // Spawn new emoji every x ms
 
         // Gesture to emoji mapping with blocking configuration
         this.gestureEmojiMap = {
@@ -380,70 +381,71 @@ export class DefaultApplication extends BaseApplication {
     }
     
     handleEmojiGestures(gestures) {
-        // Track currently active gestures that have emojis
-        const currentEmojiGestures = new Set();
+        // Track currently active hand-gesture combinations
+        const currentHandGestures = new Set(); // Set of "hand-gesture" strings
         
         if (gestures && gestures.active) {
-            // Check all categories (left, right, both)
+            // Check all categories (left, right, both) 
             for (const category of ['left', 'right', 'both']) {
                 if (gestures.active[category]) {
+                    // Get blocked gestures for this hand based on active gestures
+                    const blockedForThisHand = this.getBlockedGestures(gestures.active[category]);
+                    
                     for (const gesture of gestures.active[category]) {
-                        if (this.gestureEmojiMap[gesture]) {
-                            currentEmojiGestures.add(gesture);
+                        if (this.gestureEmojiMap[gesture] && !blockedForThisHand.has(gesture)) {
+                            // Create unique key for this hand-gesture combination
+                            const key = `${category}-${gesture}`;
+                            currentHandGestures.add(key);
                         }
                     }
                 }
             }
         }
         
-        // Get currently blocked gestures based on active emoji gestures
-        const blockedGestures = this.getBlockedGestures();
-        
-        // Start spawning for newly active gestures (if not blocked)
-        for (const gesture of currentEmojiGestures) {
-            if (!this.activeGestures.has(gesture) && !blockedGestures.has(gesture)) {
-                // New gesture started and not blocked
-                this.activeGestures.add(gesture);
-                this.spawnEmoji(gesture); // Spawn first emoji immediately
+        // Start spawning for newly active hand-gesture combinations
+        for (const key of currentHandGestures) {
+            const [category, gesture] = key.split('-', 2);
+            
+            if (!this.activeGestureTimers.has(key)) {
+                // New hand-gesture combination started
+                this.spawnEmoji(gesture, category); // Spawn first emoji immediately
                 
-                // Set up periodic spawning
-                this.gestureSpawnTimers.set(gesture, setInterval(() => {
+                // Set up periodic spawning  
+                this.activeGestureTimers.set(key, setInterval(() => {
                     // Only spawn if icons are still hidden and gesture is not blocked
-                    if (!this.showIcons && !this.getBlockedGestures().has(gesture)) {
-                        this.spawnEmoji(gesture);
+                    if (!this.showIcons) {
+                        // Check if gesture is still not blocked
+                        if (this.gestures && this.gestures.active && this.gestures.active[category]) {
+                            const blockedForThisHand = this.getBlockedGestures(this.gestures.active[category]);
+                            if (!blockedForThisHand.has(gesture)) {
+                                this.spawnEmoji(gesture, category);
+                            }
+                        }
                     }
                 }, this.EMOJI_SPAWN_INTERVAL));
             }
         }
         
-        // Stop spawning for gestures that are no longer active or are now blocked
-        for (const gesture of this.activeGestures) {
-            if (!currentEmojiGestures.has(gesture) || blockedGestures.has(gesture)) {
-                // Gesture ended or is now blocked
-                this.activeGestures.delete(gesture);
-                
-                // Clear the spawn timer
-                const timer = this.gestureSpawnTimers.get(gesture);
-                if (timer) {
-                    clearInterval(timer);
-                    this.gestureSpawnTimers.delete(gesture);
-                }
+        // Stop spawning for hand-gesture combinations that are no longer active
+        for (const [key, timer] of this.activeGestureTimers) {
+            if (!currentHandGestures.has(key)) {
+                // Hand-gesture combination ended
+                clearInterval(timer);
+                this.activeGestureTimers.delete(key);
             }
         }
     }
     
-    getBlockedGestures() {
+    getBlockedGestures(activeGesturesForHand) {
         const blocked = new Set();
         
-        // Check which gestures are currently blocking others via active emojis
-        for (const emoji of this.floatingEmojis) {
-            // Find which gesture this emoji belongs to
-            for (const [gestureName, config] of Object.entries(this.gestureEmojiMap)) {
-                if (config.emoji === emoji.emoji && config.blocks) {
-                    // Add all gestures blocked by this one
-                    for (const blockedGesture of config.blocks) {
-                        blocked.add(blockedGesture);
-                    }
+        // Check which gestures in this hand block others
+        for (const gesture of activeGesturesForHand) {
+            const config = this.gestureEmojiMap[gesture];
+            if (config && config.blocks) {
+                // Add all gestures blocked by this one
+                for (const blockedGesture of config.blocks) {
+                    blocked.add(blockedGesture);
                 }
             }
         }
@@ -451,16 +453,48 @@ export class DefaultApplication extends BaseApplication {
         return blocked;
     }
     
-    spawnEmoji(gesture) {
+    spawnEmoji(gesture, category) {
         if (!this.width || !this.height) return;
         
         const config = this.gestureEmojiMap[gesture];
         if (!config || !config.emoji) return;
         
-        // Random x position in the middle 60% of the screen
-        const x = this.width * 0.2 + Math.random() * this.width * 0.6;
+        // Get palm centroid position
+        let x, y;
         
-        this.floatingEmojis.push(new FloatingEmoji(config.emoji, x, this.width, this.height));
+        if (this.handsData) {
+            // For two-hands gestures (category === 'both'), average the palm positions
+            if (category === 'both') {
+                if (this.handsData.left?.palm?.centroid && this.handsData.right?.palm?.centroid) {
+                    const leftPalm = this.handsData.left.palm.centroid;
+                    const rightPalm = this.handsData.right.palm.centroid;
+                    const leftScaled = this.scalePoint(leftPalm);
+                    const rightScaled = this.scalePoint(rightPalm);
+                    if (leftScaled && rightScaled) {
+                        x = (leftScaled.x + rightScaled.x) / 2;
+                        y = (leftScaled.y + rightScaled.y) / 2;
+                    }
+                }
+            } else {
+                // Single hand gesture - use the specific hand's palm
+                const hand = this.handsData[category];
+                if (hand?.palm?.centroid) {
+                    const scaled = this.scalePoint(hand.palm.centroid);
+                    if (scaled) {
+                        x = scaled.x;
+                        y = scaled.y;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to random position if palm position not available
+        if (x === undefined || y === undefined) {
+            x = this.width * 0.2 + Math.random() * this.width * 0.6;
+            y = this.height * 0.8; // Near bottom
+        }
+        
+        this.floatingEmojis.push(new FloatingEmoji(config.emoji, x, y, this.width, this.height));
     }
     
     updateAndDrawEmojis() {
@@ -475,10 +509,9 @@ export class DefaultApplication extends BaseApplication {
     
     clearAllEmojiTimers() {
         // Clear all spawn timers
-        for (const timer of this.gestureSpawnTimers.values()) {
+        for (const timer of this.activeGestureTimers.values()) {
             clearInterval(timer);
         }
-        this.gestureSpawnTimers.clear();
-        this.activeGestures.clear();
+        this.activeGestureTimers.clear();
     }
 }
