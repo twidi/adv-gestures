@@ -13,7 +13,7 @@ This is a Python 3.11+ hand gesture recognition application that uses MediaPipe 
 - `make dev` - Install in development mode with all dev dependencies
 
 ### Code Quality (IMPORTANT: Run these before completing any task)
-- `make pretty lint` - Run ALL prettifiers and linters 
+- `make pretty lint` - Run ALL prettifiers and linters (only if some python is modified, no need if only javascript) 
 
 ### Running the Application (Development/testing interface)
 - `adv-gestures` - Run gesture recognition (default command, requires camera access)

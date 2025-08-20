@@ -9,7 +9,7 @@ import typer
 from ..cameras import CameraInfo, list_cameras
 from ..config import Config
 
-app = typer.Typer()
+app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 
 DEFAULT_USER_CONFIG_PATH = Config.get_user_path()
 
@@ -114,35 +114,26 @@ def init_camera_capture(
     return cap, window_name
 
 
-def determine_gpu_usage(gpu: bool, no_gpu: bool, config: Config | None = None) -> bool:
+def determine_gpu_usage(gpu: bool | None, config: Config | None = None) -> bool:
     """Determine whether to use GPU based on CLI arguments, environment variable, and config.
 
     Priority order:
     1. CLI arguments (--gpu / --no-gpu)
     2. Environment variable (GESTURE_RECOGNIZER_USE_GPU)
     3. Config file (config.cli.use_gpu)
-    4. Default (True)
+    4. Default (False)
 
     Args:
-        gpu: Whether --gpu flag was specified
-        no_gpu: Whether --no-gpu flag was specified
+        gpu: Whether --gpu or --no-gpu flag was specified (None means not specified)
         config: Optional Config object with CLI settings
 
     Returns:
         bool: Whether to use GPU
-
-    Raises:
-        typer.Exit: If both --gpu and --no-gpu are specified
     """
-    # Check for conflicting arguments
-    if gpu and no_gpu:
-        print("Error: Cannot specify both --gpu and --no-gpu")
-        raise typer.Exit(1)
-
     # Priority 1: CLI arguments
-    if gpu:
+    if gpu is True:
         use_gpu = True
-    elif no_gpu:
+    elif gpu is False:
         use_gpu = False
     else:
         # Priority 2: Environment variable
@@ -167,7 +158,7 @@ def determine_gpu_usage(gpu: bool, no_gpu: bool, config: Config | None = None) -
     return use_gpu
 
 
-def determine_mirror_mode(mirror: bool, no_mirror: bool, config: Config | None = None) -> bool:
+def determine_mirror_mode(mirror: bool | None, config: Config | None = None) -> bool:
     """Determine whether to use mirror mode based on CLI arguments, environment variable, and config.
 
     Priority order:
@@ -177,8 +168,7 @@ def determine_mirror_mode(mirror: bool, no_mirror: bool, config: Config | None =
     4. Default (True)
 
     Args:
-        mirror: Whether --mirror flag was specified
-        no_mirror: Whether --no-mirror flag was specified
+        mirror: Whether --mirror or --no-mirror flag was specified (None means not specified)
         config: Optional Config object with CLI settings
 
     Returns:
@@ -187,15 +177,10 @@ def determine_mirror_mode(mirror: bool, no_mirror: bool, config: Config | None =
     Raises:
         typer.Exit: If both --mirror and --no-mirror are specified
     """
-    # Check for conflicting arguments
-    if mirror and no_mirror:
-        print("Error: Cannot specify both --mirror and --no-mirror")
-        raise typer.Exit(1)
-
     # Priority 1: CLI arguments
-    if mirror:
+    if mirror is True:
         use_mirror = True
-    elif no_mirror:
+    elif mirror is False:
         use_mirror = False
     else:
         # Priority 2: Environment variable

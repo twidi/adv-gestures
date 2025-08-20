@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import cast
 
 import cv2  # type: ignore[import-untyped]
-import typer
 
 from ..cameras import CameraInfo
 from ..config import Config
+from . import options
 from .common import (
-    DEFAULT_USER_CONFIG_PATH,
     app,
     determine_mirror_mode,
     init_camera_capture,
@@ -104,23 +103,18 @@ def check_camera(
 
 @app.command(name="check-camera")
 def check_camera_cmd(
-    camera: str | None = typer.Option(None, "--camera", "--cam", help="Camera name filter (case insensitive)"),
-    preview: bool = typer.Option(True, "--preview/--no-preview", help="Show visual preview window"),
-    mirror: bool = typer.Option(False, "--mirror", help="Force mirror mode (overrides environment variable)"),
-    no_mirror: bool = typer.Option(
-        False, "--no-mirror", help="Force no mirror mode (overrides environment variable)"
-    ),
-    size: int | None = typer.Option(None, "--size", "-s", help="Maximum dimension of the camera capture"),
-    config_path: Path | None = typer.Option(  # noqa: B008
-        None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
-    ),
+    camera: str | None = options.camera,
+    preview: bool = options.preview,
+    mirror: bool | None = options.mirror,
+    size: int | None = options.size,
+    config_path: Path | None = options.config,  # noqa: B008
 ) -> None:
     """Check camera functionality without gesture recognition."""
     # Load configuration
     config = Config.load(config_path)
 
     # Determine mirror mode (now with config)
-    use_mirror = determine_mirror_mode(mirror, no_mirror, config)
+    use_mirror = determine_mirror_mode(mirror, config)
 
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera

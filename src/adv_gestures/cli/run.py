@@ -15,8 +15,8 @@ from ..config import Config
 from ..drawing import draw_hands_marks_and_info
 from ..models import Hands, Thumb
 from ..recognizer import Recognizer, StreamInfo
+from . import options
 from .common import (
-    DEFAULT_USER_CONFIG_PATH,
     app,
     determine_gpu_usage,
     determine_mirror_mode,
@@ -207,19 +207,13 @@ def run_gestures(
 @app.callback(invoke_without_command=True)
 def run_gestures_cmd(
     ctx: typer.Context,
-    camera: str | None = typer.Option(None, "--camera", "--cam", help="Camera name filter (case insensitive)"),
-    preview: bool = typer.Option(True, "--preview/--no-preview", help="Show visual preview window"),
-    mirror: bool = typer.Option(False, "--mirror", help="Force mirror mode (overrides environment variable)"),
-    no_mirror: bool = typer.Option(
-        False, "--no-mirror", help="Force no mirror mode (overrides environment variable)"
-    ),
-    size: int | None = typer.Option(None, "--size", "-s", help="Maximum dimension of the camera capture"),
-    config_path: Path | None = typer.Option(  # noqa: B008
-        None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
-    ),
+    camera: str | None = options.camera,
+    preview: bool = options.preview,
+    mirror: bool | None = options.mirror,
+    size: int | None = options.size,
+    config_path: Path | None = options.config,  # noqa: B008
     json_output: bool = typer.Option(False, "--json", help="Output data as JSON format"),
-    gpu: bool = typer.Option(False, "--gpu", help="Force GPU acceleration (overrides environment variable)"),
-    no_gpu: bool = typer.Option(False, "--no-gpu", help="Force CPU processing (overrides environment variable)"),
+    gpu: bool | None = options.gpu,
 ) -> None:
     """Run gesture recognition on selected camera.
 
@@ -233,10 +227,10 @@ def run_gestures_cmd(
     config = Config.load(config_path)
 
     # Determine GPU usage (now with config)
-    use_gpu = determine_gpu_usage(gpu, no_gpu, config)
+    use_gpu = determine_gpu_usage(gpu, config)
 
     # Determine mirror mode (now with config)
-    use_mirror = determine_mirror_mode(mirror, no_mirror, config)
+    use_mirror = determine_mirror_mode(mirror, config)
 
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera
