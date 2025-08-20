@@ -8,7 +8,10 @@ const applicationRegistry = {
 };
 
 export class ApplicationManager {
-    constructor(canvasContainer, handledAirTaps) {
+
+    static instance;
+
+    constructor(canvasContainer, handledAirTaps, isMirrored = true) {
         this.applications = new Map();
         this.activeApp = null;
         this.defaultApp = null;
@@ -16,8 +19,13 @@ export class ApplicationManager {
         this.width = 0;
         this.height = 0;
         this.handledAirTaps = handledAirTaps;
+        this.applicationListeners = new Set(); // Listeners for app registration events
+        this.isMirrored = isMirrored; // Store mirror state
 
         this.streamSize = null; // Will be set when stream info is available
+
+        // Store singleton reference for late registrations
+        ApplicationManager.instance = this;
 
         // Create instances from registered applications
         this.initializeApplications();
@@ -46,6 +54,11 @@ export class ApplicationManager {
         }
 
         console.log(`Registered application: ${name}${isDefault ? ' (default)' : ''}`);
+        
+        // If manager instance exists, handle late registration
+        if (ApplicationManager.instance) {
+            ApplicationManager.instance.handleLateRegistration(ApplicationClass);
+        }
     }
     
     initializeApplications() {
@@ -148,6 +161,57 @@ export class ApplicationManager {
     
     getDefaultApp() {
         return this.defaultApp;
+    }
+    
+    /**
+     * Add a listener for application registration events
+     * @param {Function} listener - Callback function that receives the new app instance
+     */
+    addApplicationListener(listener) {
+        this.applicationListeners.add(listener);
+    }
+    
+    /**
+     * Remove an application registration listener
+     * @param {Function} listener - The listener to remove
+     */
+    removeApplicationListener(listener) {
+        this.applicationListeners.delete(listener);
+    }
+    
+    /**
+     * Handle late registration of an application (after manager initialization)
+     * @param {Function} ApplicationClass - The application class constructor
+     */
+    handleLateRegistration(ApplicationClass) {
+        // Check if already registered
+        const tempInstance = new ApplicationClass();
+        const name = tempInstance.name;
+        
+        if (this.applications.has(name)) {
+            return; // Already registered
+        }
+        
+        console.log(`Handling late registration for: ${name}`);
+        
+        // Create the application instance
+        const app = new ApplicationClass(this);
+        this.applications.set(app.name, app);
+        
+        // Create canvas if we already have dimensions
+        if (this.width > 0 && this.height > 0) {
+            app.createCanvas(this.width, this.height);
+        }
+        
+        // Set stream size if available
+        if (this.streamSize) {
+            app.setStreamSize(this.streamSize);
+        }
+        
+        // Notify all listeners about the new application
+        for (const listener of this.applicationListeners) {
+            listener(app);
+        }
     }
 
     markAirTapsAsHandled(airTapData) {

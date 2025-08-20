@@ -90,7 +90,7 @@ New app requirements:
 
 ### Font Awesome Icons
 - **NEVER** invent SVG paths
-- Get actual SVG from: `https://site-assets.fontawesome.com/releases/v7.0.0/svgs-full/regular/{icon-name}.svg`
+- Get actual SVG from: `https://site-assets.fontawesome.com/releases/v7.0.0/svgs-full/regular/{icon-name}.svg`. FILES ARE **NEVER** TRUNCATED. IF YOU THINK THEY ARE, GET THE WHOLE SVG AND YOU'LL SEE.
 - Ask user if unsure which icon to use
 
 ### JavaScript Best Practices

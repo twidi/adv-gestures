@@ -797,7 +797,7 @@ async function init() {
         updateUI();
         
         // Initialize application manager with registered applications
-        state.appManager = new ApplicationManager(elements.canvasContainer, state.handledAirTaps);
+        state.appManager = new ApplicationManager(elements.canvasContainer, state.handledAirTaps, state.mirror);
         
         // Setup camera
         const stream = await setupCamera();

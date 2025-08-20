@@ -174,6 +174,11 @@ export class DefaultApplication extends BaseApplication {
         this.showIcons = false; // Icons hidden by default
         this.showPointers = this.showIcons; // Only show pointers if icons are visible
         
+        // Listen for new applications being registered
+        if (applicationManager && applicationManager.addApplicationListener) {
+            applicationManager.addApplicationListener((newApp) => this.onNewApplicationRegistered(newApp));
+        }
+        
         // Animation properties
         this.ICON_FADE_DURATION = 500; // Half second animation duration
         this.iconOpacity = 0; // Current opacity (0-1)
@@ -219,6 +224,18 @@ export class DefaultApplication extends BaseApplication {
     
     setActiveApp(activeApp) {
         this.activeApp = activeApp;
+        if (this.width && this.height) {
+            this.updateIconRects();
+        }
+    }
+    
+    /**
+     * Called when a new application is registered late (after initialization)
+     * @param {BaseApplication} newApp - The newly registered application
+     */
+    onNewApplicationRegistered(newApp) {
+        console.log(`Default app notified of new application: ${newApp.name}`);
+        // Update icon rectangles to include the new app
         if (this.width && this.height) {
             this.updateIconRects();
         }
