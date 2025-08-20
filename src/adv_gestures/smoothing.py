@@ -270,12 +270,18 @@ class EnumSmoother(Generic[T]):
         if not self.history:
             return self.current_value
 
-        # Calculate exponentially weighted votes
+        # Calculate exponentially weighted votes based on time
         weights_by_value: dict[T, float] = {}
 
-        # Iterate from newest to oldest (reversed)
-        for k, tv in enumerate(reversed(self.history)):
-            weight = (1 - self.ema_alpha) ** k
+        # Use the most recent timestamp as reference
+        for tv in self.history:
+            # Calculate time-based exponential weight
+            # More recent values get higher weight
+            time_diff = now - tv.timestamp
+            # Convert time difference to a decay factor similar to the EMA behavior
+            # Weight decays exponentially with time
+            weight = self.ema_alpha ** (time_diff / (self.window / 10))
+
             if tv.value not in weights_by_value:
                 weights_by_value[tv.value] = 0.0
             weights_by_value[tv.value] += weight
@@ -330,15 +336,12 @@ class MultiGestureSmoother:
         for gesture, smoother in self.smoothers.items():
             # Weight is 1.0 if detected, 0.0 otherwise
             weight = gesture_weights.get(gesture, 0.0)
-            smoother.update(weight)
+            smoothed_value = smoother.update(weight)
 
-            # Calculate weight as sum of values in history
-            history_sum = sum(tv.value for tv in smoother.history if tv.value is not None)
-
-            # Include any gesture with weight > 0
-            if history_sum > 0:
-                smoothed_weights[gesture] = history_sum
-                max_weight = max(max_weight, history_sum)
+            # Include any gesture with smoothed weight > 0
+            if smoothed_value > 0:
+                smoothed_weights[gesture] = smoothed_value
+                max_weight = max(max_weight, smoothed_value)
 
         # Normalize weights to [0, 1] based on max weight
         if max_weight > 0:
