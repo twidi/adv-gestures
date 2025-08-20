@@ -93,10 +93,14 @@ class Recognizer:
             handedness=result.handedness,
             hand_landmarks=[  # Convert MediaPipe landmarks to our Landmark model
                 [
-                    Landmark.from_normalized(landmark, input_image.width, input_image.height, self.mirroring)
-                    for landmark in landmarks
+                    Landmark.from_mediapipe(
+                        landmark, world_landmark, input_image.width, input_image.height, self.mirroring
+                    )
+                    for landmark, world_landmark in zip(landmarks, world_landmarks, strict=True)
                 ]
-                for landmarks in result.hand_landmarks
+                for (landmarks, world_landmarks) in zip(
+                    result.hand_landmarks, result.hand_world_landmarks, strict=True
+                )
             ],
             timestamp=timestamp_ms / 1000,  # Convert milliseconds to seconds
             recognized_image=input_image,  # Store the recognized image

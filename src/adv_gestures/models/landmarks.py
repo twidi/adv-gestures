@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Any, ClassVar, NamedTuple, TypeAlias
 
-from ..mediapipe import NormalizedLandmark
+from ..mediapipe import NormalizedLandmark, WorldLandmark
 
 
 class HandLandmark(IntEnum):
@@ -93,36 +93,50 @@ class Landmark(NamedTuple):
     Attributes:
         x: X coordinate in pixels (0 to width) as integer  => also accessible via `landmark[0]`
         y: Y coordinate in pixels (0 to height) as integer  => also accessible via `landmark[1]`
-        x_normalized: Original MediaPipe X coordinate (0 to 1)
-        y_normalized: Original MediaPipe Y coordinate (0 to 1)
-        z_normalized: Original MediaPipe Z coordinate (depth relative to wrist)
+        x_raw: Original MediaPipe X coordinate (0 to 1)
+        y_raw: Original MediaPipe Y coordinate (0 to 1)
+        z_raw: Original MediaPipe Z coordinate (depth relative to wrist)
     """
 
     x: int
     y: int
-    x_normalized: float
-    y_normalized: float
-    z_normalized: float | None
+    x_raw: float
+    y_raw: float
+    z_raw: float
+    x_world: float
+    y_world: float
+    z_world: float
 
     @classmethod
-    def from_normalized(cls, mp_landmark: NormalizedLandmark, width: int, height: int, mirroring: bool) -> Landmark:
-        """Create a Landmark from MediaPipe's NormalizedLandmark.
+    def from_mediapipe(
+        cls,
+        normalized_landmark: NormalizedLandmark,
+        world_landmark: WorldLandmark,
+        width: int,
+        height: int,
+        mirroring: bool,
+    ) -> Landmark:
+        """Create a Landmark from MediaPipe's landmarks data.
 
         Args:
-            mp_landmark: MediaPipe landmark with normalized coordinates
+            normalized_landmark: MediaPipe landmark with normalized coordinates
+            world_landmark: MediaPipe world landmark with depth information
             width: Image width in pixels
             height: Image height in pixels
             mirroring: Whether to mirror the X coordinate (for left-handed users)
 
         Returns:
-            Landmark with pixel coordinates
+            Landmark with pixel coordinates, with x values updated based on mirroring.
         """
         return cls(
-            x=int(round((mp_landmark.x if not mirroring else 1 - mp_landmark.x) * width)),
-            y=int(round(mp_landmark.y * height)),
-            x_normalized=mp_landmark.x,
-            y_normalized=mp_landmark.y,
-            z_normalized=getattr(mp_landmark, "z", None),
+            x=int(round((normalized_landmark.x if not mirroring else 1 - normalized_landmark.x) * width)),
+            y=int(round(normalized_landmark.y * height)),
+            x_raw=(normalized_landmark.x if not mirroring else 1 - normalized_landmark.x),
+            y_raw=normalized_landmark.y,
+            z_raw=normalized_landmark.z,
+            x_world=world_landmark.x if not mirroring else -world_landmark.x,
+            y_world=world_landmark.y,
+            z_world=world_landmark.z,
         )
 
     @property
@@ -135,9 +149,14 @@ class Landmark(NamedTuple):
         return {
             "x": self.x,
             "y": self.y,
-            "normalized": {
-                "x": self.x_normalized,
-                "y": self.y_normalized,
-                "z": self.z_normalized,
+            "raw": {
+                "x": self.x_raw,
+                "y": self.y_raw,
+                "z": self.z_raw,
+            },
+            "world": {
+                "x": self.x_world,
+                "y": self.y_world,
+                "z": self.z_world,
             },
         }

@@ -221,29 +221,21 @@ class Hand(SmoothedBase):
         pinky_mcp = self.palm.landmarks[-1]
 
         # Create vectors from wrist to thumb MCP and wrist to pinky MCP
-        # Note: x_normalized and y_normalized are MediaPipe normalized coordinates in the range [0,1]
-        # and z_normalized represents depth
+        # Note: x_raw and y_raw are MediaPipe normalized coordinates in the range [0,1]
+        # and z_raw represents depth
         vec1 = np.array(
             [
-                thumb_mcp.x_normalized - wrist.x_normalized,
-                thumb_mcp.y_normalized - wrist.y_normalized,
-                (
-                    (thumb_mcp.z_normalized - wrist.z_normalized)
-                    if thumb_mcp.z_normalized is not None and wrist.z_normalized is not None
-                    else 0
-                ),
+                thumb_mcp.x_raw - wrist.x_raw,
+                thumb_mcp.y_raw - wrist.y_raw,
+                ((thumb_mcp.z_raw - wrist.z_raw) if thumb_mcp.z_raw is not None and wrist.z_raw is not None else 0),
             ]
         )
 
         vec2 = np.array(
             [
-                pinky_mcp.x_normalized - wrist.x_normalized,
-                pinky_mcp.y_normalized - wrist.y_normalized,
-                (
-                    (pinky_mcp.z_normalized - wrist.z_normalized)
-                    if pinky_mcp.z_normalized is not None and wrist.z_normalized is not None
-                    else 0
-                ),
+                pinky_mcp.x_raw - wrist.x_raw,
+                pinky_mcp.y_raw - wrist.y_raw,
+                ((pinky_mcp.z_raw - wrist.z_raw) if pinky_mcp.z_raw is not None and wrist.z_raw is not None else 0),
             ]
         )
 

@@ -132,7 +132,7 @@ Server (Python)
 > **Server MUST NOT wrap, rename, or transform fields**; the JSON emitted in `snapshot` events is **verbatim** the return value of `hands.to_dict()` for the current frame.
 
 **Notes for the client:**
-- Expect both **pixel** and **normalized** coordinates as provided by the library.
+- Expect both **pixel** and **raw** coordinates as provided by the library.
 - Use `stream_info.width/height` from the payload for display scaling.
 - Any enums/strings/field names are dictated by the library's `to_dict()` implementation.
 - Performance metrics (FPS, latency) are included in the JSON payload but not displayed in the UI for MVP.

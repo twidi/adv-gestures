@@ -316,7 +316,7 @@ data = hands.to_dict()
 
 # This returns a complete hierarchy including:
 # - Both hands (left/right) with visibility status
-# - All landmarks with pixel and normalized coordinates
+# - All landmarks with pixel, raw and world coordinates
 # - Finger positions, angles, and touch states
 # - Detected gestures with weights and durations
 # - Palm centroids and hand orientations
