@@ -257,3 +257,6 @@ export class DebugApplication extends BaseApplication {
         this.ctx.setLineDash([]);
     }
 }
+
+// Self-register this application
+BaseApplication.register(DebugApplication);

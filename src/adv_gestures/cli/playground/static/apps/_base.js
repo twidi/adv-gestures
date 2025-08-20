@@ -1,5 +1,9 @@
 import { DP, DrawingStyles } from '../drawing-primitives.js';
 
+// Queue for pending registrations
+const pendingRegistrations = [];
+let isManagerReady = false;
+
 export class BaseApplication {
     constructor(name, applicationManager) {
         this.name = name;
@@ -255,6 +259,71 @@ export class BaseApplication {
     }
 
 
+    /**
+     * Static method to register an application class
+     * Handles timing issues - works even if ApplicationManager isn't loaded yet
+     * @param {Function} ApplicationClass - The application class constructor
+     * @param {boolean} isDefault - Whether this is the default application
+     */
+    static register(ApplicationClass, isDefault = false) {
+        if (typeof window !== 'undefined' && window.ApplicationManager && window.ApplicationManager.register) {
+            // ApplicationManager is ready, register immediately
+            window.ApplicationManager.register(ApplicationClass, isDefault);
+        } else {
+            // Queue the registration for later
+            console.log(`Queuing registration for application (default: ${isDefault})`);
+            pendingRegistrations.push({ ApplicationClass, isDefault });
+            
+            // Set up a watcher if not already done
+            if (!isManagerReady) {
+                BaseApplication.waitForApplicationManager();
+            }
+        }
+    }
+    
+    /**
+     * Wait for ApplicationManager to be available and process pending registrations
+     */
+    static waitForApplicationManager() {
+        const checkInterval = setInterval(() => {
+            if (typeof window !== 'undefined' && window.ApplicationManager && window.ApplicationManager.register) {
+                // ApplicationManager is now ready
+                isManagerReady = true;
+                clearInterval(checkInterval);
+                
+                // Process all pending registrations
+                console.log(`ApplicationManager ready, processing ${pendingRegistrations.length} pending registrations`);
+                while (pendingRegistrations.length > 0) {
+                    const { ApplicationClass, isDefault } = pendingRegistrations.shift();
+                    window.ApplicationManager.register(ApplicationClass, isDefault);
+                }
+            }
+        }, 10); // Check every 10ms
+        
+        // Timeout after 5 seconds
+        setTimeout(() => {
+            if (!isManagerReady) {
+                clearInterval(checkInterval);
+                console.error('ApplicationManager not found after 5 seconds. Applications not registered.');
+            }
+        }, 5000);
+    }
+    
+    /**
+     * Notify that ApplicationManager is ready (called by ApplicationManager itself)
+     */
+    static notifyManagerReady() {
+        if (!isManagerReady) {
+            isManagerReady = true;
+            
+            // Process any pending registrations immediately
+            while (pendingRegistrations.length > 0) {
+                const { ApplicationClass, isDefault } = pendingRegistrations.shift();
+                window.ApplicationManager.register(ApplicationClass, isDefault);
+            }
+        }
+    }
+
     drawPointers(skipLeftHand = false, skipRightHand = false) {
         // Only draw if showPointers is true and we have context and hands data
         if (!this.showPointers || !this.ctx || !this.handsData) return;
@@ -358,4 +427,9 @@ export class BaseApplication {
         }
     }
 
+}
+
+// Expose the notify method globally for ApplicationManager to call
+if (typeof window !== 'undefined') {
+    window.notifyApplicationManagerReady = BaseApplication.notifyManagerReady;
 }

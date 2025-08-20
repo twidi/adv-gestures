@@ -785,7 +785,7 @@ async function init() {
     try {
         updateUI();
         
-        // Initialize application manager
+        // Initialize application manager with registered applications
         state.appManager = new ApplicationManager(elements.canvasContainer, state.handledAirTaps);
         
         // Setup camera

@@ -22,7 +22,7 @@ dev:  ## Install the project in the current environment, with its dependencies, 
 	@echo "$(BOLD)Installing (or upgrading) $(PROJECT_NAME) in dev mode (with all dependencies)$(RESET)"
 	@pip install --upgrade uv
 	@uv pip install --upgrade pip setuptools
-	@uv pip install --upgrade -e .[dev]
+	@uv pip install --upgrade -e .[dev,playground]
 	@$(MAKE) full-clean
 
 .PHONY: dist

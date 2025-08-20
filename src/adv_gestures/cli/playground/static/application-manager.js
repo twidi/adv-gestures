@@ -1,9 +1,11 @@
 import { DP, DrawingStyles } from './drawing-primitives.js';
-import { DefaultApplication } from './apps/default.js';
-import { DebugApplication } from './apps/debug.js';
-import { DrawingApplication } from './apps/drawing.js';
-import { ThereminApplication } from './apps/theremin.js';
-import { PongApplication } from './apps/pong.js';
+
+// Static registry for self-registering applications
+const applicationRegistry = {
+    applications: new Map(),
+    defaultAppClass: null,
+    registrationOrder: []
+};
 
 export class ApplicationManager {
     constructor(canvasContainer, handledAirTaps) {
@@ -17,30 +19,52 @@ export class ApplicationManager {
 
         this.streamSize = null; // Will be set when stream info is available
 
-        // Register all applications
-        this.registerApplications();
+        // Create instances from registered applications
+        this.initializeApplications();
     }
     
-    registerApplications() {
-        // Create and register default application (always first, no icon)
-        const defaultApp = new DefaultApplication(this);
-        this.applications.set(defaultApp.name, defaultApp);
-        this.defaultApp = defaultApp;
-        this.activeApp = defaultApp;
+    /**
+     * Static method to register an application class
+     * @param {Function} ApplicationClass - The application class constructor
+     * @param {boolean} isDefault - Whether this is the default application
+     */
+    static register(ApplicationClass, isDefault = false) {
+        const tempInstance = new ApplicationClass();
+        const name = tempInstance.name;
+        
+        if (!name) {
+            console.error('Application must have a name property:', ApplicationClass);
+            return;
+        }
 
-        // Create and register other applications
-        const drawingApp = new DrawingApplication(this);
-        this.applications.set(drawingApp.name, drawingApp);
+        applicationRegistry.applications.set(name, ApplicationClass);
+        
+        if (isDefault) {
+            applicationRegistry.defaultAppClass = ApplicationClass;
+        } else {
+            applicationRegistry.registrationOrder.push(ApplicationClass);
+        }
 
-        const pongApp = new PongApplication(this);
-        this.applications.set(pongApp.name, pongApp);
+        console.log(`Registered application: ${name}${isDefault ? ' (default)' : ''}`);
+    }
+    
+    initializeApplications() {
+        // Create instance of default application first
+        if (applicationRegistry.defaultAppClass) {
+            const defaultApp = new applicationRegistry.defaultAppClass(this);
+            this.applications.set(defaultApp.name, defaultApp);
+            this.defaultApp = defaultApp;
+            this.activeApp = defaultApp;
+        }
 
-        const thereminApp = new ThereminApplication(this);
-        this.applications.set(thereminApp.name, thereminApp);
-
-        // This one should stay the last one
-        const debugApp = new DebugApplication(this);
-        this.applications.set(debugApp.name, debugApp);
+        // Create instances of all other applications
+        for (const [name, ApplicationClass] of applicationRegistry.applications) {
+            // Skip if this is the default app (already created)
+            if (ApplicationClass === applicationRegistry.defaultAppClass) continue;
+            
+            const app = new ApplicationClass(this);
+            this.applications.set(app.name, app);
+        }
     }
 
     createCanvases(width, height) {
@@ -137,4 +161,14 @@ export class ApplicationManager {
         }
     }
 
+}
+
+// Expose ApplicationManager globally for self-registration
+if (typeof window !== 'undefined') {
+    window.ApplicationManager = ApplicationManager;
+    
+    // Notify the registrar that ApplicationManager is ready
+    if (window.notifyApplicationManagerReady) {
+        window.notifyApplicationManagerReady();
+    }
 }

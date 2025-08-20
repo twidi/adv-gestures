@@ -74,6 +74,17 @@
         </div>
     </div>
     
+    <!-- Load ApplicationManager first (provides the registration mechanism) -->
+    <script type="module" src="/static/application-manager.js"></script>
+    
+    <!-- Load all applications (they will self-register, order doesn't matter) -->
+    <script type="module" src="/static/apps/default.js"></script>
+    <script type="module" src="/static/apps/drawing.js"></script>
+    <script type="module" src="/static/apps/pong.js"></script>
+    <script type="module" src="/static/apps/theremin.js"></script>
+    <script type="module" src="/static/apps/debug.js"></script>
+    
+    <!-- Load main application last -->
     <script type="module" src="/static/main.js"></script>
 </body>
 </html>

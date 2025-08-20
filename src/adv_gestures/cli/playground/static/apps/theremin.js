@@ -630,3 +630,6 @@ export class ThereminApplication extends BaseApplication {
         return closestNote;
     }
 }
+
+// Self-register this application
+BaseApplication.register(ThereminApplication);

@@ -515,3 +515,6 @@ export class DefaultApplication extends BaseApplication {
         this.activeGestureTimers.clear();
     }
 }
+
+// Self-register this application
+BaseApplication.register(DefaultApplication, true); // true = default app

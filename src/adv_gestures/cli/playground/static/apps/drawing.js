@@ -809,3 +809,6 @@ export class DrawingApplication extends BaseApplication {
 
     }
 }
+
+// Self-register this application
+BaseApplication.register(DrawingApplication);

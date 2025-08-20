@@ -592,3 +592,6 @@ export class PongApplication extends BaseApplication {
         }
     }
 }
+
+// Self-register this application
+BaseApplication.register(PongApplication);
