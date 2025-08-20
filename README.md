@@ -95,6 +95,21 @@ adv-gestures tweak --gpu              # or -g
 adv-gestures tweak --no-gpu           # or -ng
 ```
 
+#### Depth Visualization
+```bash
+# Visualize depth information from hand tracking
+adv-gestures depth-viz
+
+# All available options:
+adv-gestures depth-viz --camera "webcam"  # or --cam, -cm
+adv-gestures depth-viz --mirror           # or -m
+adv-gestures depth-viz --no-mirror        # or -nm
+adv-gestures depth-viz --size 1920        # or -s
+adv-gestures depth-viz --config /path/to/config.json  # or -c
+adv-gestures depth-viz --gpu              # or -g
+adv-gestures depth-viz --no-gpu           # or -ng
+```
+
 The CLI will prompt for camera selection if multiple cameras are available and `--camera` is not specified.
 
 ### Web Playground
@@ -127,6 +142,7 @@ adv-gestures playground --host 0.0.0.0 --port 8080  # For network access
 - **Drawing**: Draw in the air using finger gestures
 - **Pong**: Play pong using hand movements
 - **Theremin**: Create music by moving your hands
+- **3D Viewer**: Visualize hand landmarks in 3D space
 
 #### Playground Features
 
@@ -150,9 +166,9 @@ JSON configuration with nested settings for all aspects of gesture detection:
 {
   "cli": {
     "camera": "webcam",
-    "mirror": true,
+    "mirror": true,  // Default is true, mirrors video horizontally
     "size": 1920,
-    "gpu": false
+    "gpu": false     // Default is false, uses CPU for processing
   },
   "hands": {
     "smoothing_window": 0.5,
@@ -181,10 +197,10 @@ JSON configuration with nested settings for all aspects of gesture detection:
 # Model path (default: gesture_recognizer.task)
 export GESTURE_RECOGNIZER_MODEL_PATH="/path/to/model.task"
 
-# GPU acceleration (true/false)
+# GPU acceleration (true/false, default: false)
 export GESTURE_RECOGNIZER_USE_GPU="true"
 
-# Mirror mode (true/false)
+# Mirror mode (true/false, default: true)
 export GESTURE_RECOGNIZER_MIRROR="true"
 ```
 
@@ -257,7 +273,7 @@ with Recognizer("gesture_recognizer.task") as recognizer:
 - `PRE_AIR_TAP` - Pre-tap detection phase
 - `WAVE` - Open palm waving motion
 - `SNAP` - Finger snap detection
-- `DOUBLE_SNAP` - Two snaps within 1 second
+- `DOUBLE_SNAP` - Two snaps within 1 second (exit gesture in playground)
 - `SWIPE` - Directional swipe (includes `direction` and `mode`)
 
 ### Two-Hands Gestures (6)
@@ -353,6 +369,7 @@ This outputs one JSON object per frame, containing the complete hand tracking da
   - `Hands`: Collection managing both hands
   - `Finger`: Individual finger tracking
   - `Palm`: Palm position and orientation
+  - `Landmark`: Enhanced landmark model with world coordinates
 - **Gesture Detectors** (`models/hands/`): 
   - `BaseGestureDetector`: Abstract base for all detectors
   - `HandGesturesDetector`: Single-hand gestures
@@ -430,6 +447,7 @@ adv-gestures/
 │   │   ├── options.py       # CLI option definitions
 │   │   ├── run.py           # Main recognition command
 │   │   ├── tweak.py         # Interactive config editor
+│   │   ├── depth_viz.py     # Depth visualization command
 │   │   └── playground/
 │   │       ├── __init__.py  # Playground command
 │   │       ├── server.py    # aiohttp + WebRTC server
@@ -444,7 +462,8 @@ adv-gestures/
 │   │               ├── debug.js        # Debug overlays
 │   │               ├── drawing.js      # Air drawing
 │   │               ├── pong.js         # Pong game
-│   │               └── theremin.js     # Music app
+│   │               ├── theremin.js     # Music app
+│   │               └── 3d_viewer.js    # 3D visualization
 │   └── models/
 │       ├── __init__.py      # Model exports
 │       ├── fingers.py       # Finger model
