@@ -33,6 +33,7 @@ from ..models.hands import Hands
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,
+    determine_gpu_usage,
     pick_camera,
 )
 
@@ -1354,6 +1355,7 @@ def run_opencv_thread(
     desired_size: int,
     stop_event: threading.Event,
     recognizer_ready: threading.Event,
+    use_gpu: bool = True,
 ) -> None:
     """Run OpenCV capture and recognition in a separate thread."""
     import os
@@ -1378,7 +1380,9 @@ def run_opencv_thread(
     try:
         # Create gesture recognizer with context manager
         with Recognizer(
-            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task", mirroring=mirror
+            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task",
+            use_gpu=use_gpu,
+            mirroring=mirror,
         ) as recognizer:
             print("Gesture recognizer loaded successfully")
             recognizer_ready.set()  # Signal that recognizer is ready
@@ -1423,6 +1427,8 @@ def tweak_cmd(
     config_path: Path | None = typer.Option(  # noqa: B008
         None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
     ),
+    gpu: bool = typer.Option(False, "--gpu", help="Force GPU acceleration (overrides environment variable)"),
+    no_gpu: bool = typer.Option(False, "--no-gpu", help="Force CPU processing (overrides environment variable)"),
 ) -> None:
     """Tweak gesture recognition configuration in real-time.
 
@@ -1431,6 +1437,9 @@ def tweak_cmd(
     """
     # Load configuration
     config = Config.load(config_path)
+
+    # Determine GPU usage (now with config)
+    use_gpu = determine_gpu_usage(gpu, no_gpu, config)
 
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera
@@ -1452,7 +1461,7 @@ def tweak_cmd(
     # Start OpenCV thread
     opencv_thread = threading.Thread(
         target=run_opencv_thread,
-        args=(selected, config, final_mirror, final_size, stop_event, recognizer_ready),
+        args=(selected, config, final_mirror, final_size, stop_event, recognizer_ready, use_gpu),
         daemon=True,
     )
     opencv_thread.start()

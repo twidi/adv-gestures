@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 import cv2  # type: ignore[import-untyped]
@@ -111,3 +112,56 @@ def init_camera_capture(
         print(f"Showing preview for {camera_info.name}")
 
     return cap, window_name
+
+
+def determine_gpu_usage(gpu: bool, no_gpu: bool, config: Config | None = None) -> bool:
+    """Determine whether to use GPU based on CLI arguments, environment variable, and config.
+
+    Priority order:
+    1. CLI arguments (--gpu / --no-gpu)
+    2. Environment variable (GESTURE_RECOGNIZER_USE_GPU)
+    3. Config file (config.cli.use_gpu)
+    4. Default (True)
+
+    Args:
+        gpu: Whether --gpu flag was specified
+        no_gpu: Whether --no-gpu flag was specified
+        config: Optional Config object with CLI settings
+
+    Returns:
+        bool: Whether to use GPU
+
+    Raises:
+        typer.Exit: If both --gpu and --no-gpu are specified
+    """
+    # Check for conflicting arguments
+    if gpu and no_gpu:
+        print("Error: Cannot specify both --gpu and --no-gpu")
+        raise typer.Exit(1)
+
+    # Priority 1: CLI arguments
+    if gpu:
+        use_gpu = True
+    elif no_gpu:
+        use_gpu = False
+    else:
+        # Priority 2: Environment variable
+        env_gpu = os.getenv("GESTURE_RECOGNIZER_USE_GPU", "").strip().lower()
+        if env_gpu in ("false", "0", "no"):
+            use_gpu = False
+        elif env_gpu in ("true", "1", "yes"):
+            use_gpu = True
+        # Priority 3: Config file
+        elif config is not None:
+            use_gpu = config.cli.use_gpu
+        # Priority 4: Default
+        else:
+            use_gpu = False
+
+    # Print status message
+    if use_gpu:
+        print("Using GPU acceleration (may fall back to CPU if GPU is unavailable)")
+    else:
+        print("Using CPU processing")
+
+    return use_gpu

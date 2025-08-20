@@ -41,13 +41,14 @@ if not logger.handlers:
 
 # Store session data per UID
 class Session:
-    def __init__(self, uid: str, mirror: bool):
+    def __init__(self, uid: str, mirror: bool, use_gpu: bool = True):
         self.uid = uid
         self.recognizer = Recognizer(
             model_path=os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task",
+            use_gpu=use_gpu,
             mirroring=mirror,
         )
-        logger.info(f"Recognizer initialized for UID {uid} with mirroring={mirror}")
+        logger.info(f"Recognizer initialized for UID {uid} with mirroring={mirror}, use_gpu={use_gpu}")
         self.hands = Hands(Config())
         self.pc: RTCPeerConnection | None = None
         self.sse_connection: Any | None = None
@@ -181,7 +182,8 @@ async def webrtc_offer(request: web.Request) -> web.Response:
 
     # Create session if not exists
     if uid not in sessions:
-        session = Session(uid, mirror)
+        use_gpu = request.app.get("use_gpu", True)
+        session = Session(uid, mirror, use_gpu)
         sessions[uid] = session
     else:
         session = sessions[uid]
@@ -292,7 +294,8 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
 
     # Create session if not exists
     if uid not in sessions:
-        session = Session(uid, mirror)
+        use_gpu = request.app.get("use_gpu", True)
+        session = Session(uid, mirror, use_gpu)
         sessions[uid] = session
     else:
         session = sessions[uid]
@@ -378,9 +381,11 @@ def playground_server(
     host: str = "127.0.0.1",
     port: int = 9810,
     open_browser: bool = False,
+    use_gpu: bool = True,
 ) -> None:
     """Run the gesture recognition playground server."""
     app = create_app()
+    app["use_gpu"] = use_gpu
 
     async def start_server() -> None:
         runner = web.AppRunner(app)

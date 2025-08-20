@@ -18,6 +18,7 @@ from ..recognizer import Recognizer, StreamInfo
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,
+    determine_gpu_usage,
     init_camera_capture,
     pick_camera,
 )
@@ -146,6 +147,7 @@ def run_gestures(
     mirror: bool,
     desired_size: int,
     json_output: bool = False,
+    use_gpu: bool = True,
 ) -> None:
     """Show a live preview of the selected camera with gesture recognition."""
 
@@ -161,7 +163,9 @@ def run_gestures(
     try:
         # Create gesture recognizer with context manager
         with Recognizer(
-            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task", mirroring=mirror
+            os.getenv("GESTURE_RECOGNIZER_MODEL_PATH", "").strip() or "gesture_recognizer.task",
+            use_gpu=use_gpu,
+            mirroring=mirror,
         ) as recognizer:
             print("Gesture recognizer loaded successfully")
             if show_preview:
@@ -210,6 +214,8 @@ def run_gestures_cmd(
         None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output data as JSON format"),
+    gpu: bool = typer.Option(False, "--gpu", help="Force GPU acceleration (overrides environment variable)"),
+    no_gpu: bool = typer.Option(False, "--no-gpu", help="Force CPU processing (overrides environment variable)"),
 ) -> None:
     """Run gesture recognition on selected camera.
 
@@ -221,6 +227,9 @@ def run_gestures_cmd(
 
     # Load configuration
     config = Config.load(config_path)
+
+    # Determine GPU usage (now with config)
+    use_gpu = determine_gpu_usage(gpu, no_gpu, config)
 
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera
@@ -238,6 +247,7 @@ def run_gestures_cmd(
             mirror=final_mirror,
             desired_size=final_size,
             json_output=json_output,
+            use_gpu=use_gpu,
         )
     else:
         print("\nNo camera selected.")
