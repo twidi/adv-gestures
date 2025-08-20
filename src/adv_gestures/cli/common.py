@@ -165,3 +165,56 @@ def determine_gpu_usage(gpu: bool, no_gpu: bool, config: Config | None = None) -
         print("Using CPU processing")
 
     return use_gpu
+
+
+def determine_mirror_mode(mirror: bool, no_mirror: bool, config: Config | None = None) -> bool:
+    """Determine whether to use mirror mode based on CLI arguments, environment variable, and config.
+
+    Priority order:
+    1. CLI arguments (--mirror / --no-mirror)
+    2. Environment variable (GESTURE_RECOGNIZER_MIRROR)
+    3. Config file (config.cli.mirror)
+    4. Default (True)
+
+    Args:
+        mirror: Whether --mirror flag was specified
+        no_mirror: Whether --no-mirror flag was specified
+        config: Optional Config object with CLI settings
+
+    Returns:
+        bool: Whether to use mirror mode
+
+    Raises:
+        typer.Exit: If both --mirror and --no-mirror are specified
+    """
+    # Check for conflicting arguments
+    if mirror and no_mirror:
+        print("Error: Cannot specify both --mirror and --no-mirror")
+        raise typer.Exit(1)
+
+    # Priority 1: CLI arguments
+    if mirror:
+        use_mirror = True
+    elif no_mirror:
+        use_mirror = False
+    else:
+        # Priority 2: Environment variable
+        env_mirror = os.getenv("GESTURE_RECOGNIZER_MIRROR", "").strip().lower()
+        if env_mirror in ("false", "0", "no"):
+            use_mirror = False
+        elif env_mirror in ("true", "1", "yes"):
+            use_mirror = True
+        # Priority 3: Config file
+        elif config is not None:
+            use_mirror = config.cli.mirror
+        # Priority 4: Default
+        else:
+            use_mirror = True
+
+    # Print status message
+    if use_mirror:
+        print("Mirror mode enabled (video output will be horizontally flipped)")
+    else:
+        print("Mirror mode disabled")
+
+    return use_mirror

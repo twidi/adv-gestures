@@ -13,6 +13,7 @@ from ..config import Config
 from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,
+    determine_mirror_mode,
     init_camera_capture,
     pick_camera,
 )
@@ -105,7 +106,10 @@ def check_camera(
 def check_camera_cmd(
     camera: str | None = typer.Option(None, "--camera", "--cam", help="Camera name filter (case insensitive)"),
     preview: bool = typer.Option(True, "--preview/--no-preview", help="Show visual preview window"),
-    mirror: bool | None = typer.Option(None, "--mirror/--no-mirror", help="Mirror the video output"),
+    mirror: bool = typer.Option(False, "--mirror", help="Force mirror mode (overrides environment variable)"),
+    no_mirror: bool = typer.Option(
+        False, "--no-mirror", help="Force no mirror mode (overrides environment variable)"
+    ),
     size: int | None = typer.Option(None, "--size", "-s", help="Maximum dimension of the camera capture"),
     config_path: Path | None = typer.Option(  # noqa: B008
         None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
@@ -115,15 +119,17 @@ def check_camera_cmd(
     # Load configuration
     config = Config.load(config_path)
 
+    # Determine mirror mode (now with config)
+    use_mirror = determine_mirror_mode(mirror, no_mirror, config)
+
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera
-    final_mirror = mirror if mirror is not None else config.cli.mirror
     final_size = size if size is not None else config.cli.size
 
     selected = pick_camera(final_camera)
 
     if selected:
         print(f"\nSelected: {selected}")
-        check_camera(selected, show_preview=preview, mirror=final_mirror, desired_size=final_size)
+        check_camera(selected, show_preview=preview, mirror=use_mirror, desired_size=final_size)
     else:
         print("\nNo camera selected.")

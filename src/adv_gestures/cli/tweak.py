@@ -34,6 +34,7 @@ from .common import (
     DEFAULT_USER_CONFIG_PATH,
     app,
     determine_gpu_usage,
+    determine_mirror_mode,
     pick_camera,
 )
 
@@ -1422,7 +1423,10 @@ def run_opencv_thread(
 @app.command(name="tweak")
 def tweak_cmd(
     camera: str | None = typer.Option(None, "--camera", "--cam", help="Camera name filter (case insensitive)"),
-    mirror: bool | None = typer.Option(None, "--mirror/--no-mirror", help="Mirror the video output"),
+    mirror: bool = typer.Option(False, "--mirror", help="Force mirror mode (overrides environment variable)"),
+    no_mirror: bool = typer.Option(
+        False, "--no-mirror", help="Force no mirror mode (overrides environment variable)"
+    ),
     size: int | None = typer.Option(None, "--size", "-s", help="Maximum dimension of the camera capture"),
     config_path: Path | None = typer.Option(  # noqa: B008
         None, "--config", "-c", help=f"Path to config file. Default: {DEFAULT_USER_CONFIG_PATH}"
@@ -1441,9 +1445,11 @@ def tweak_cmd(
     # Determine GPU usage (now with config)
     use_gpu = determine_gpu_usage(gpu, no_gpu, config)
 
+    # Determine mirror mode (now with config)
+    use_mirror = determine_mirror_mode(mirror, no_mirror, config)
+
     # Use config values as defaults, but CLI options take precedence
     final_camera = camera if camera is not None else config.cli.camera
-    final_mirror = mirror if mirror is not None else config.cli.mirror
     final_size = size if size is not None else config.cli.size
 
     # Select camera
@@ -1461,7 +1467,7 @@ def tweak_cmd(
     # Start OpenCV thread
     opencv_thread = threading.Thread(
         target=run_opencv_thread,
-        args=(selected, config, final_mirror, final_size, stop_event, recognizer_ready, use_gpu),
+        args=(selected, config, use_mirror, final_size, stop_event, recognizer_ready, use_gpu),
         daemon=True,
     )
     opencv_thread.start()

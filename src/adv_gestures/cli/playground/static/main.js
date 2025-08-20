@@ -22,7 +22,7 @@ const MAX_LOGS = 100;
 // Application state
 const state = {
     uid: generateUID(),
-    mirror: localStorage.getItem(STORAGE_KEYS.MIRROR) !== 'false', // Default true
+    mirror: true, // Will be updated from server config or localStorage in init()
     selectedCamera: localStorage.getItem(STORAGE_KEYS.CAMERA) || null,
     stream: null,
     pc: null,
@@ -783,6 +783,17 @@ async function reconnect() {
 // Main initialization
 async function init() {
     try {
+        // Get server default from data attribute
+        const defaultMirror = document.body.dataset.defaultMirror === 'true';
+        
+        // Use localStorage value if it exists, otherwise use server default
+        const localMirror = localStorage.getItem(STORAGE_KEYS.MIRROR);
+        if (localMirror !== null) {
+            state.mirror = localMirror !== 'false';
+        } else {
+            state.mirror = defaultMirror;
+        }
+        
         updateUI();
         
         // Initialize application manager with registered applications

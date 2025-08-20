@@ -183,7 +183,7 @@ class CLIConfig(BaseModel):
     """Configuration for CLI settings."""
 
     camera: str | None = Field(None, description="Camera name filter for auto-selection")
-    mirror: bool = Field(False, description="Mirror the video output horizontally")
+    mirror: bool = Field(True, description="Mirror the video output horizontally")
     size: int = Field(1280, description="Maximum dimension for camera capture resolution")
     use_gpu: bool = Field(False, description="Use GPU acceleration for gesture recognition")
 

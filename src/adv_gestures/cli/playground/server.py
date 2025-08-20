@@ -108,12 +108,21 @@ class Session:
 sessions: dict[str, Session] = {}
 
 
-async def index(request: web.Request) -> web.FileResponse:
-    """Serve the main HTML page."""
+async def index(request: web.Request) -> web.Response:
+    """Serve the main HTML page with injected configuration."""
     index_file = STATIC_DIR / "index.html"
 
-    return web.FileResponse(
-        index_file,
+    # Read the HTML file
+    html_content = index_file.read_text()
+
+    # Get the default mirror setting from the app
+    default_mirror = request.app.get("default_mirror", True)
+
+    html_content = html_content.replace("{{DEFAULT_MIRROR}}", str(default_mirror).lower())
+
+    return web.Response(
+        text=html_content,
+        content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
     )
 
@@ -172,7 +181,8 @@ async def webrtc_offer(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         sdp = data.get("sdp")
-        mirror = data.get("mirror", True)
+        default_mirror = request.app.get("default_mirror", True)
+        mirror = data.get("mirror", default_mirror)
 
         if not sdp:
             return web.Response(text="Missing SDP", status=400)
@@ -288,8 +298,9 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
     except ValueError:
         return web.Response(text="Invalid UID format", status=400)
 
-    # Extract mirror parameter from query string
-    mirror_str = request.query.get("mirror", "true")
+    # Extract mirror parameter from query string, using server default if not provided
+    default_mirror = request.app.get("default_mirror", True)
+    mirror_str = request.query.get("mirror", str(default_mirror).lower())
     mirror = mirror_str.lower() == "true"
 
     # Create session if not exists
@@ -382,10 +393,12 @@ def playground_server(
     port: int = 9810,
     open_browser: bool = False,
     use_gpu: bool = True,
+    default_mirror: bool = True,
 ) -> None:
     """Run the gesture recognition playground server."""
     app = create_app()
     app["use_gpu"] = use_gpu
+    app["default_mirror"] = default_mirror
 
     async def start_server() -> None:
         runner = web.AppRunner(app)
