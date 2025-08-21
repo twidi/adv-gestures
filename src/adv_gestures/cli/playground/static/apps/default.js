@@ -180,10 +180,17 @@ export class DefaultApplication extends BaseApplication {
         }
         
         // Animation properties
-        this.ICON_FADE_DURATION = 500; // Half second animation duration
+        this.ICON_FADE_DURATION = 800; // Duration of OPACITY animation in ms
         this.iconOpacity = 0; // Current opacity (0-1)
         this.targetIconOpacity = 0; // Target opacity to animate to
         this.opacityAnimationStart = null; // Timestamp when animation started
+        
+        // Position animation properties
+        this.POSITION_ANIMATION_DURATION = 800; // Duration of position animation in ms
+        this.positionAnimationStart = null; // Timestamp when position animation started
+        this.isAnimatingIn = false; // true for show, false for hide
+        this.iconFinalPositions = new Map(); // Final positions for icons in circle
+        this.iconAnimatedPositions = new Map(); // Current animated positions
         
         // Emoji system properties
         this.floatingEmojis = [];
@@ -245,17 +252,46 @@ export class DefaultApplication extends BaseApplication {
         if (!this.width || !this.height) return;
         
         this.iconRects.clear();
+        this.iconFinalPositions.clear();
         
-        // Calculate center position for icons
+        // Calculate circle positions for icons
+        const centerX = this.width / 2;
+        const centerY = this.height / 2;
         const appCount = this.applicationManager.applications.size - 1; // Exclude default app
-        const totalWidth = appCount * this.iconSize + (appCount - 1) * this.iconSpacing;
-        const startX = (this.width - totalWidth) / 2;
-        const y = (this.height - this.iconSize) / 2;
         
-        let x = startX;
+        if (appCount === 0) return;
+        
+        // Calculate the minimum radius needed to fit all icons without overlapping
+        // Triple the gap between icons for better spacing
+        const iconWithGap = this.iconSize + 30; // 30px gap between icons on circle (tripled from 10px)
+        
+        // Calculate the circumference needed to fit all icons
+        const neededCircumference = appCount * iconWithGap;
+        
+        // Calculate radius from circumference (C = 2πr, so r = C/2π)
+        const minRadius = neededCircumference / (2 * Math.PI);
+        
+        // Use a minimum radius to ensure icons aren't too close to center
+        // Increased minimum radius for better visual appearance
+        const radius = Math.max(minRadius, 150);
+        
+        // Calculate angle step between icons
+        const angleStep = (2 * Math.PI) / appCount;
+        
+        let index = 0;
         for (const app of this.applicationManager.applications.values()) {
             if (app === this) continue; // Skip default app
             
+            // Calculate position on circle
+            // Start from top (angle = -π/2) and go clockwise
+            const angle = -Math.PI / 2 + index * angleStep;
+            const x = centerX + Math.cos(angle) * radius - this.iconSize / 2;
+            const y = centerY + Math.sin(angle) * radius - this.iconSize / 2;
+            
+            // Store final position for animation
+            this.iconFinalPositions.set(app, { x, y });
+            
+            // Store rect for click detection (will be updated during animation)
             this.iconRects.set(app, {
                 x: x,
                 y: y,
@@ -264,13 +300,63 @@ export class DefaultApplication extends BaseApplication {
                 app: app
             });
             
-            x += this.iconSize + this.iconSpacing;
+            index++;
         }
     }
     
     drawIconContent(ctx, size, isActive) {
         // Default app has no icon - it's always active in the background
         // This method should never be called as default app has no icon in the icon bar
+    }
+    
+    updatePositionAnimation() {
+        if (this.positionAnimationStart === null) return;
+        
+        const elapsed = Date.now() - this.positionAnimationStart;
+        
+        // Update animated positions for each icon
+        const centerX = this.width / 2;
+        const centerY = this.height / 2;
+        
+        for (const [app, finalPos] of this.iconFinalPositions.entries()) {
+            // All icons animate at the same time - no delay
+            const rawProgress = Math.min(elapsed / this.POSITION_ANIMATION_DURATION, 1);
+            
+            // Use easeInOutCubic for smooth animation
+            const progress = rawProgress < 0.5
+                ? 4 * rawProgress * rawProgress * rawProgress
+                : 1 - Math.pow(-2 * rawProgress + 2, 3) / 2;
+            
+            const iconProgress = this.isAnimatingIn ? progress : 1 - progress;
+            // Simple linear interpolation from center to final position
+            const startX = centerX - this.iconSize / 2;
+            const startY = centerY - this.iconSize / 2;
+            
+            // Calculate current position with linear interpolation
+            const x = startX + (finalPos.x - startX) * iconProgress;
+            const y = startY + (finalPos.y - startY) * iconProgress;
+            
+            this.iconAnimatedPositions.set(app, { x, y });
+            
+            // Update click rect
+            const rect = this.iconRects.get(app);
+            if (rect) {
+                rect.x = x;
+                rect.y = y;
+            }
+        }
+        
+        // Check if animation is complete
+        const totalAnimationTime = this.POSITION_ANIMATION_DURATION;
+        
+        if (elapsed >= totalAnimationTime) {
+            this.positionAnimationStart = null;
+            
+            // If hiding animation is complete, reset positions
+            if (!this.isAnimatingIn) {
+                this.iconAnimatedPositions.clear();
+            }
+        }
     }
 
     draw() {
@@ -282,17 +368,23 @@ export class DefaultApplication extends BaseApplication {
         // Update and draw floating emojis
         this.updateAndDrawEmojis();
         
-        // Update opacity animation
+        // Update animations
         this.updateOpacityAnimation();
+        this.updatePositionAnimation();
         
-        // Draw application icons with animated opacity
+        // Draw application icons with animated opacity and position
         if (this.iconOpacity > 0) {
             this.ctx.save();
             this.ctx.globalAlpha = this.iconOpacity;
             
+            // Use animated positions if available, otherwise use final positions
             for (const [app, rect] of this.iconRects.entries()) {
+                const animPos = this.iconAnimatedPositions.get(app);
+                const x = animPos ? animPos.x : rect.x;
+                const y = animPos ? animPos.y : rect.y;
+                
                 // In default app, all icons are drawn the same way (no active/inactive distinction)
-                app.drawIcon(this.ctx, rect.x, rect.y, this.iconSize, false);
+                app.drawIcon(this.ctx, x, y, this.iconSize, false);
             }
             
             this.ctx.restore();
@@ -316,12 +408,27 @@ export class DefaultApplication extends BaseApplication {
             this.showIcons = !this.showIcons;
             this.showPointers = this.showIcons;
             
-            // Start opacity animation
+            // Start both opacity and position animations
             this.targetIconOpacity = this.showIcons ? 1 : 0;
             this.opacityAnimationStart = Date.now();
             
-            // If icons are now shown, clear all active emojis and timers
+            // Start position animation
+            this.positionAnimationStart = Date.now();
+            this.isAnimatingIn = this.showIcons;
+            
+            // If showing, initialize animated positions at center
+            // If hiding, positions are already at their final locations
             if (this.showIcons) {
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                for (const app of this.iconFinalPositions.keys()) {
+                    this.iconAnimatedPositions.set(app, {
+                        x: centerX - this.iconSize / 2,
+                        y: centerY - this.iconSize / 2
+                    });
+                }
+                
+                // Clear all active emojis and timers
                 this.clearAllEmojiTimers();
                 this.floatingEmojis = [];
             }
