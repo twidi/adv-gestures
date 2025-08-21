@@ -4,22 +4,6 @@ import { DP, DrawingStyles } from '../drawing-primitives.js';
 // Three.js will be loaded lazily
 let THREE = null;
 
-// Define hand connections (skeleton structure)
-const HAND_CONNECTIONS = [
-    // Thumb connections
-    [0, 1], [1, 2], [2, 3], [3, 4],
-    // Index finger connections
-    [0, 5], [5, 6], [6, 7], [7, 8],
-    // Middle finger connections
-    [5, 9], [9, 10], [10, 11], [11, 12],
-    // Ring finger connections
-    [9, 13], [13, 14], [14, 15], [15, 16],
-    // Pinky connections
-    [13, 17], [17, 18], [18, 19], [19, 20],
-    // Wrist to pinky MCP connection
-    [0, 17],
-];
-
 export class ThreeDViewerApplication extends BaseApplication {
     constructor(applicationManager) {
         super('3d_viewer', applicationManager);
@@ -50,8 +34,8 @@ export class ThreeDViewerApplication extends BaseApplication {
             // Wrist and palm (red)
             0: [1.0, 0.0, 0.0],  // WRIST
             1: [1.0, 0.0, 0.0],  // THUMB_CMC
+            2: [1.0, 0.0, 0.0], // THUMB_MCP
             // Thumb (cream white)
-            2: [1.0, 0.99, 0.82], // THUMB_MCP
             3: [1.0, 0.99, 0.82], // THUMB_IP
             4: [1.0, 0.99, 0.82], // THUMB_TIP
             // Palm (red)
@@ -166,9 +150,9 @@ export class ThreeDViewerApplication extends BaseApplication {
         // Define connection groups with their colors and thicknesses
         const connectionGroups = [
             // Palm connections (gray, thicker)
-            { connections: [[0, 1], [0, 5], [5, 9], [9, 13], [13, 17], [0, 17]], color: 0x808080, radius: 0.012 },
+            { connections: [[0, 1], [1, 2], [2, 5], [5, 9], [9, 13], [13, 17], [0, 17]], color: 0x808080, radius: 0.012 },
             // Thumb (cream white)
-            { connections: [[1, 2], [2, 3], [3, 4]], color: 0xFFFDD0, radius: 0.008 },
+            { connections: [[2, 3], [3, 4]], color: 0xFFFDD0, radius: 0.008 },
             // Index (magenta)
             { connections: [[5, 6], [6, 7], [7, 8]], color: 0xFF00FF, radius: 0.008 },
             // Middle (yellow)
@@ -478,9 +462,9 @@ export class ThreeDViewerApplication extends BaseApplication {
         // Define connection groups for canvas drawing
         const connectionGroups = [
             // Palm connections (gray, thicker)
-            { connections: [[0, 1], [0, 5], [5, 9], [9, 13], [13, 17], [0, 17]], color: '#808080', linewidth: 3 },
+            { connections: [[0, 1], [1, 2], [2, 5], [5, 9], [9, 13], [13, 17], [17, 0]], color: '#808080', linewidth: 3 },
             // Thumb (cream white)
-            { connections: [[1, 2], [2, 3], [3, 4]], color: '#FFFDD0', linewidth: 2 },
+            { connections: [[2, 3], [3, 4]], color: '#FFFDD0', linewidth: 2 },
             // Index (magenta)
             { connections: [[5, 6], [6, 7], [7, 8]], color: '#FF00FF', linewidth: 2 },
             // Middle (yellow)
