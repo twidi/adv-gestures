@@ -5,6 +5,47 @@ import { DP, DrawingStyles } from '../drawing-primitives.js';
 let THREE = null;
 
 export class ThreeDViewerApplication extends BaseApplication {
+    // Define landmark colors as static constant (hex format for IDE visualization)
+    static LANDMARK_COLORS = [
+        '#FF0000',  // 0: WRIST (red)
+        '#FF0000',  // 1: THUMB_CMC (red)
+        '#FF0000',  // 2: THUMB_MCP (red)
+        '#FFFDD0',  // 3: THUMB_IP (cream white)
+        '#FFFDD0',  // 4: THUMB_TIP (cream white)
+        '#FF0000',  // 5: INDEX_MCP (red)
+        '#FF00FF',  // 6: INDEX_PIP (magenta)
+        '#FF00FF',  // 7: INDEX_DIP (magenta)
+        '#FF00FF',  // 8: INDEX_TIP (magenta)
+        '#FF0000',  // 9: MIDDLE_MCP (red)
+        '#FFFF00',  // 10: MIDDLE_PIP (yellow)
+        '#FFFF00',  // 11: MIDDLE_DIP (yellow)
+        '#FFFF00',  // 12: MIDDLE_TIP (yellow)
+        '#FF0000',  // 13: RING_MCP (red)
+        '#00FF00',  // 14: RING_PIP (green)
+        '#00FF00',  // 15: RING_DIP (green)
+        '#00FF00',  // 16: RING_TIP (green)
+        '#FF0000',  // 17: PINKY_MCP (red)
+        '#0080FF',  // 18: PINKY_PIP (blue)
+        '#0080FF',  // 19: PINKY_DIP (blue)
+        '#0080FF',  // 20: PINKY_TIP (blue)
+    ];
+    
+    // Define connection groups as static constant
+    static CONNECTION_GROUPS = [
+        // Palm connections (gray, thicker)
+        { connections: [[0, 1], [1, 2], [2, 5], [5, 9], [9, 13], [13, 17], [0, 17]], color: '#808080', lineWidth: 3, radius: 0.012 },
+        // Thumb (cream white)
+        { connections: [[2, 3], [3, 4]], color: '#FFFDD0', lineWidth: 2, radius: 0.008 },
+        // Index (magenta)
+        { connections: [[5, 6], [6, 7], [7, 8]], color: '#FF00FF', lineWidth: 2, radius: 0.008 },
+        // Middle (yellow)
+        { connections: [[9, 10], [10, 11], [11, 12]], color: '#FFFF00', lineWidth: 2, radius: 0.008 },
+        // Ring (green)
+        { connections: [[13, 14], [14, 15], [15, 16]], color: '#00FF00', lineWidth: 2, radius: 0.008 },
+        // Pinky (blue)
+        { connections: [[17, 18], [18, 19], [19, 20]], color: '#0080FF', lineWidth: 2, radius: 0.008 }
+    ];
+    
     constructor(applicationManager) {
         super('3d_viewer', applicationManager);
         // FontAwesome 360-degrees icon SVG path
@@ -29,49 +70,26 @@ export class ThreeDViewerApplication extends BaseApplication {
         this.displayHand = 'left'; // 'right' or 'left'
     }
     
+    // Helper method to convert hex color to RGB array (0-1 range)
+    static hexToRgb(hex) {
+        const r = parseInt(hex.slice(1, 3), 16) / 255;
+        const g = parseInt(hex.slice(3, 5), 16) / 255;
+        const b = parseInt(hex.slice(5, 7), 16) / 255;
+        return [r, g, b];
+    }
+    
+    // Helper method to convert hex color to Three.js color integer
+    static hexToThreeColor(hex) {
+        return parseInt(hex.replace('#', '0x'), 16);
+    }
+    
     getLandmarkColor(index) {
-        const colors = {
-            // Wrist and palm (red)
-            0: [1.0, 0.0, 0.0],  // WRIST
-            1: [1.0, 0.0, 0.0],  // THUMB_CMC
-            2: [1.0, 0.0, 0.0], // THUMB_MCP
-            // Thumb (cream white)
-            3: [1.0, 0.99, 0.82], // THUMB_IP
-            4: [1.0, 0.99, 0.82], // THUMB_TIP
-            // Palm (red)
-            5: [1.0, 0.0, 0.0],   // INDEX_MCP
-            // Index (magenta)
-            6: [1.0, 0.0, 1.0],   // INDEX_PIP
-            7: [1.0, 0.0, 1.0],   // INDEX_DIP
-            8: [1.0, 0.0, 1.0],   // INDEX_TIP
-            // Palm (red)
-            9: [1.0, 0.0, 0.0],   // MIDDLE_MCP
-            // Middle (yellow)
-            10: [1.0, 1.0, 0.0],  // MIDDLE_PIP
-            11: [1.0, 1.0, 0.0],  // MIDDLE_DIP
-            12: [1.0, 1.0, 0.0],  // MIDDLE_TIP
-            // Palm (red)
-            13: [1.0, 0.0, 0.0],  // RING_MCP
-            // Ring (green)
-            14: [0.0, 1.0, 0.0],  // RING_PIP
-            15: [0.0, 1.0, 0.0],  // RING_DIP
-            16: [0.0, 1.0, 0.0],  // RING_TIP
-            // Palm (red)
-            17: [1.0, 0.0, 0.0],  // PINKY_MCP
-            // Pinky (blue)
-            18: [0.0, 0.5, 1.0],  // PINKY_PIP
-            19: [0.0, 0.5, 1.0],  // PINKY_DIP
-            20: [0.0, 0.5, 1.0],  // PINKY_TIP
-        };
-        return colors[index] || [1.0, 1.0, 1.0];
+        const hex = ThreeDViewerApplication.LANDMARK_COLORS[index];
+        return hex ? ThreeDViewerApplication.hexToRgb(hex) : [1.0, 1.0, 1.0];
     }
     
     get landmarkColors() {
-        const colors = {};
-        for (let i = 0; i <= 20; i++) {
-            colors[i] = this.getLandmarkColor(i);
-        }
-        return colors;
+        return ThreeDViewerApplication.LANDMARK_COLORS;
     }
     
     async createCanvas(width, height) {
@@ -147,27 +165,12 @@ export class ThreeDViewerApplication extends BaseApplication {
         // Create cylinders for connections with different thicknesses
         this.connectionCylinders = [];
         
-        // Define connection groups with their colors and thicknesses
-        const connectionGroups = [
-            // Palm connections (gray, thicker)
-            { connections: [[0, 1], [1, 2], [2, 5], [5, 9], [9, 13], [13, 17], [0, 17]], color: 0x808080, radius: 0.012 },
-            // Thumb (cream white)
-            { connections: [[2, 3], [3, 4]], color: 0xFFFDD0, radius: 0.008 },
-            // Index (magenta)
-            { connections: [[5, 6], [6, 7], [7, 8]], color: 0xFF00FF, radius: 0.008 },
-            // Middle (yellow)
-            { connections: [[9, 10], [10, 11], [11, 12]], color: 0xFFFF00, radius: 0.008 },
-            // Ring (green)
-            { connections: [[13, 14], [14, 15], [15, 16]], color: 0x00FF00, radius: 0.008 },
-            // Pinky (blue)
-            { connections: [[17, 18], [18, 19], [19, 20]], color: 0x0080FF, radius: 0.008 }
-        ];
-        
         // Create cylinders for each connection
-        for (const group of connectionGroups) {
+        for (const group of ThreeDViewerApplication.CONNECTION_GROUPS) {
+            const threeColor = ThreeDViewerApplication.hexToThreeColor(group.color);
             const material = new THREE.MeshPhongMaterial({
-                color: group.color,
-                emissive: new THREE.Color(group.color).multiplyScalar(0.3),
+                color: threeColor,
+                emissive: new THREE.Color(threeColor).multiplyScalar(0.3),
                 shininess: 100
             });
             
@@ -451,34 +454,10 @@ export class ThreeDViewerApplication extends BaseApplication {
     drawHand(hand, label) {
         if (!hand || !hand.all_landmarks) return;
         
-        // Convert landmark colors from RGB array to hex strings
-        const colorToHex = (color) => {
-            const r = Math.floor(color[0] * 255);
-            const g = Math.floor(color[1] * 255);
-            const b = Math.floor(color[2] * 255);
-            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-        };
-        
-        // Define connection groups for canvas drawing
-        const connectionGroups = [
-            // Palm connections (gray, thicker)
-            { connections: [[0, 1], [1, 2], [2, 5], [5, 9], [9, 13], [13, 17], [17, 0]], color: '#808080', linewidth: 3 },
-            // Thumb (cream white)
-            { connections: [[2, 3], [3, 4]], color: '#FFFDD0', linewidth: 2 },
-            // Index (magenta)
-            { connections: [[5, 6], [6, 7], [7, 8]], color: '#FF00FF', linewidth: 2 },
-            // Middle (yellow)
-            { connections: [[9, 10], [10, 11], [11, 12]], color: '#FFFF00', linewidth: 2 },
-            // Ring (green)
-            { connections: [[13, 14], [14, 15], [15, 16]], color: '#00FF00', linewidth: 2 },
-            // Pinky (blue)
-            { connections: [[17, 18], [18, 19], [19, 20]], color: '#0080FF', linewidth: 2 }
-        ];
-        
         // Draw connections first (so points are on top)
-        for (const group of connectionGroups) {
+        for (const group of ThreeDViewerApplication.CONNECTION_GROUPS) {
             this.ctx.strokeStyle = group.color;
-            this.ctx.lineWidth = group.linewidth;
+            this.ctx.lineWidth = group.lineWidth;
             for (const [start, end] of group.connections) {
                 const startLandmark = hand.all_landmarks[start];
                 const endLandmark = hand.all_landmarks[end];
@@ -496,8 +475,8 @@ export class ThreeDViewerApplication extends BaseApplication {
         // Draw landmarks with their colors
         for (let i = 0; i < hand.all_landmarks.length; i++) {
             const landmark = hand.all_landmarks[i];
-            const color = this.landmarkColors[i];
-            this.ctx.fillStyle = colorToHex(color);
+            const color = ThreeDViewerApplication.LANDMARK_COLORS[i];
+            this.ctx.fillStyle = color;
             
             const scaled = this.scalePoint(landmark);
             this.ctx.beginPath();
